@@ -31,7 +31,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 Requires **Node.js 20+**.
 
 ```bash
-git clone https://github.com/kevindang0531/pantry-chef.git
+git clone https://github.com/Kev1nDang/pantry-chef.git
 cd pantry-chef
 npm install
 npm run dev
