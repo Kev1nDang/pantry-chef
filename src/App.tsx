@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AuthBar } from './components/AuthBar';
+import { CookDialog } from './components/CookDialog';
 import { GroceryForm } from './components/GroceryForm';
 import { GroceryList } from './components/GroceryList';
+import { PasteListDialog } from './components/PasteListDialog';
 import { RecipeCard } from './components/RecipeCard';
 import { RecipeDetail } from './components/RecipeDetail';
-import { RECIPES } from './data/recipes';
-import { rankRecipes } from './lib/match';
-import type { GroceryItem } from './types';
+import { matchRecipes, messageOf, type NewGrocery } from './lib/api';
+import { usePantry } from './lib/usePantry';
+import { useSession } from './lib/useSession';
+import type { GroceryItem, RecipeMatch } from './types';
 
-const STORAGE_KEY = 'pantry-chef:groceries';
-
-const SAMPLE: Omit<GroceryItem, 'id'>[] = [
+const SAMPLE: NewGrocery[] = [
   { name: 'eggs', amount: 6, unit: 'pcs' },
   { name: 'butter', amount: 200, unit: 'g' },
   { name: 'milk', amount: 1, unit: 'l' },
@@ -18,46 +20,81 @@ const SAMPLE: Omit<GroceryItem, 'id'>[] = [
   { name: 'rice', amount: 1, unit: 'kg' },
 ];
 
-function loadGroceries(): GroceryItem[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as GroceryItem[]) : [];
-  } catch {
-    return [];
-  }
-}
+const DIETS = ['vegetarian', 'vegan', 'high-protein', 'quick'];
 
 type Filter = 'all' | 'ready' | 'close';
+type Dialog = 'paste' | 'cook' | null;
+
+interface MatchResult {
+  /** the requestKey these matches answer */
+  key: string;
+  matches: RecipeMatch[];
+  error: string | null;
+}
+
+function addTo(list: GroceryItem[], item: NewGrocery): GroceryItem[] {
+  const existing = list.find(
+    (g) => g.name.toLowerCase() === item.name.toLowerCase() && g.unit === item.unit,
+  );
+  if (existing) {
+    return list.map((g) => (g === existing ? { ...g, amount: g.amount + item.amount } : g));
+  }
+  return [...list, { ...item, id: crypto.randomUUID() }];
+}
 
 export default function App() {
-  const [groceries, setGroceries] = useState<GroceryItem[]>(loadGroceries);
+  const session = useSession();
+  const token = session?.access_token ?? null;
+  const { groceries, setGroceries, status: syncStatus, error: syncError } = usePantry(
+    session?.user.id ?? null,
+    token,
+  );
+
   const [filter, setFilter] = useState<Filter>('all');
+  const [diet, setDiet] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [aiMatch, setAiMatch] = useState<RecipeMatch | null>(null);
+  const [dialog, setDialog] = useState<Dialog>(null);
+
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<MatchResult>({ key: '', matches: [], error: null });
+
+  // Ask the API to rank recipes whenever the groceries or the diet filter change (debounced).
+  // `requestKey` ignores client-only changes such as ids, so those don't refetch.
+  const pantry = useMemo(() => groceries.filter((g) => g.amount > 0), [groceries]);
+  const requestKey = JSON.stringify([pantry.map((g) => [g.name, g.amount, g.unit]), diet, retry]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(groceries));
-    } catch {
-      /* storage unavailable — keep working in memory */
-    }
-  }, [groceries]);
+    if (pantry.length === 0) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const found = await matchRecipes(pantry, diet ? [diet] : [], ctrl.signal);
+        setResult({ key: requestKey, matches: found, error: null });
+      } catch (err) {
+        if (!ctrl.signal.aborted) {
+          setResult((r) => ({ key: requestKey, matches: r.matches, error: messageOf(err) }));
+        }
+      }
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+    // requestKey captures everything the request depends on.
+  }, [requestKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const matches = useMemo(() => rankRecipes(RECIPES, groceries), [groceries]);
+  const loading = pantry.length > 0 && result.key !== requestKey;
+  const matches = pantry.length > 0 ? result.matches : [];
+  const error = loading ? null : result.error;
+
   const visible = matches.filter((m) =>
     filter === 'ready' ? m.ready : filter === 'close' ? m.missingCount <= 2 : true,
   );
   const openMatch = matches.find((m) => m.recipe.id === openId);
 
-  function addGrocery(item: Omit<GroceryItem, 'id'>) {
-    setGroceries((prev) => {
-      const existing = prev.find(
-        (g) => g.name.toLowerCase() === item.name.toLowerCase() && g.unit === item.unit,
-      );
-      if (existing) {
-        return prev.map((g) => (g === existing ? { ...g, amount: g.amount + item.amount } : g));
-      }
-      return [...prev, { ...item, id: crypto.randomUUID() }];
-    });
+  function addGroceries(items: NewGrocery[]) {
+    setGroceries((prev) => items.reduce(addTo, prev));
   }
 
   return (
@@ -67,23 +104,34 @@ export default function App() {
           <span aria-hidden>🥕</span> Pantry Chef
         </div>
         <p className="tagline">Tell us what you have. We'll tell you what to cook.</p>
+        <AuthBar session={session} syncStatus={syncStatus} />
       </header>
 
       <main className="layout">
         <section className="panel pantry">
           <div className="panel-head">
             <h2>Your groceries</h2>
-            {groceries.length > 0 ? (
-              <button className="btn btn-ghost" onClick={() => setGroceries([])}>
-                Clear all
+            <div>
+              <button className="btn btn-ghost" onClick={() => setDialog('paste')}>
+                Paste a list
               </button>
-            ) : (
-              <button className="btn btn-ghost" onClick={() => SAMPLE.forEach(addGrocery)}>
-                Try sample
-              </button>
-            )}
+              {groceries.length > 0 ? (
+                <button className="btn btn-ghost" onClick={() => setGroceries(() => [])}>
+                  Clear all
+                </button>
+              ) : (
+                <button className="btn btn-ghost" onClick={() => addGroceries(SAMPLE)}>
+                  Try sample
+                </button>
+              )}
+            </div>
           </div>
-          <GroceryForm onAdd={addGrocery} />
+          {syncError && (
+            <p className="error-text" role="alert">
+              {syncError}
+            </p>
+          )}
+          <GroceryForm onAdd={(item) => addGroceries([item])} />
           <GroceryList
             items={groceries}
             onRemove={(id) => setGroceries((prev) => prev.filter((g) => g.id !== id))}
@@ -91,29 +139,59 @@ export default function App() {
               setGroceries((prev) => prev.map((g) => (g.id === id ? { ...g, amount } : g)))
             }
           />
+          <button
+            className="btn btn-primary btn-block"
+            disabled={groceries.length === 0}
+            onClick={() => setDialog('cook')}
+          >
+            ✨ Cook something from my pantry
+          </button>
         </section>
 
         <section className="panel results">
           <div className="panel-head">
             <h2>
               Recipes <span className="count">{visible.length}</span>
+              {loading && <span className="spinner" aria-label="Loading recipes" />}
             </h2>
-            <div className="segmented" role="tablist">
-              {(['all', 'ready', 'close'] as Filter[]).map((f) => (
-                <button
-                  key={f}
-                  role="tab"
-                  aria-selected={filter === f}
-                  className={filter === f ? 'active' : ''}
-                  onClick={() => setFilter(f)}
-                >
-                  {f === 'all' ? 'All' : f === 'ready' ? 'Ready now' : 'Almost'}
-                </button>
-              ))}
+            <div className="filters">
+              <select
+                className="diet-select"
+                value={diet}
+                onChange={(e) => setDiet(e.target.value)}
+                aria-label="Dietary filter"
+              >
+                <option value="">Any diet</option>
+                {DIETS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <div className="segmented" role="tablist">
+                {(['all', 'ready', 'close'] as Filter[]).map((f) => (
+                  <button
+                    key={f}
+                    role="tab"
+                    aria-selected={filter === f}
+                    className={filter === f ? 'active' : ''}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : f === 'ready' ? 'Ready now' : 'Almost'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {groceries.length === 0 ? (
+          {error ? (
+            <div className="empty-state" role="alert">
+              <p>Couldn't load recipes: {error}</p>
+              <button className="btn btn-ghost" onClick={() => setRetry((n) => n + 1)}>
+                Try again
+              </button>
+            </div>
+          ) : groceries.length === 0 ? (
             <div className="empty-state">
               <div className="empty-emoji" aria-hidden>
                 🧺
@@ -122,10 +200,14 @@ export default function App() {
             </div>
           ) : visible.length === 0 ? (
             <div className="empty-state">
-              <p>No recipes match this filter yet — try adding more groceries.</p>
+              <p>
+                {loading
+                  ? 'Finding recipes…'
+                  : 'No recipes match this filter yet — try adding more groceries, or let AI cook something up.'}
+              </p>
             </div>
           ) : (
-            <div className="recipe-grid">
+            <div className={`recipe-grid ${loading ? 'stale' : ''}`}>
               {visible.map((m) => (
                 <RecipeCard key={m.recipe.id} match={m} onOpen={() => setOpenId(m.recipe.id)} />
               ))}
@@ -134,7 +216,24 @@ export default function App() {
         </section>
       </main>
 
-      {openMatch && <RecipeDetail match={openMatch} onClose={() => setOpenId(null)} />}
+      {openMatch && (
+        <RecipeDetail key={openMatch.recipe.id} match={openMatch} onClose={() => setOpenId(null)} />
+      )}
+      {aiMatch && <RecipeDetail key={aiMatch.recipe.id} match={aiMatch} onClose={() => setAiMatch(null)} />}
+      {dialog === 'paste' && (
+        <PasteListDialog token={token} onAdd={addGroceries} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'cook' && (
+        <CookDialog
+          token={token}
+          groceries={groceries}
+          onCooked={(m) => {
+            setDialog(null);
+            setAiMatch(m);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }

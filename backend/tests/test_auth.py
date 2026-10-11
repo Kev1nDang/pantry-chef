@@ -5,18 +5,7 @@ import jwt
 import pytest
 
 from app.auth import decode_supabase_jwt
-from tests.conftest import TEST_SECRET
-
-
-def make_token(secret: str = TEST_SECRET, **overrides) -> str:
-    claims = {
-        "sub": str(uuid.uuid4()),
-        "aud": "authenticated",
-        "role": "authenticated",
-        "exp": int(time.time()) + 3600,
-        **overrides,
-    }
-    return jwt.encode(claims, secret, algorithm="HS256")
+from tests.conftest import make_token
 
 
 def test_decodes_valid_hs256_token(settings):

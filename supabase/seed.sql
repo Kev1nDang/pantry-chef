@@ -1,4 +1,4 @@
--- Seed data generated from src/data/recipes.ts (the frontend's mock dataset).
+-- Seed data, originally generated from the frontend's mock dataset (src/data/recipes.ts, since removed).
 
 insert into public.recipes (id, title, emoji, minutes, servings, tags, steps) values
   ('scrambled-eggs', 'Creamy Scrambled Eggs', '🍳', 10, 2, array['breakfast', 'vegetarian', 'quick'],

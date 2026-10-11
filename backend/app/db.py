@@ -21,4 +21,16 @@ def get_session(settings: Annotated[Settings, Depends(get_settings)]) -> Iterato
         yield session
 
 
+def get_optional_session(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Iterator[Session | None]:
+    """For routes that can work without a database (they get `None`)."""
+    if not settings.database_url:
+        yield None
+        return
+    with Session(get_engine(settings.sqlalchemy_url)) as session:
+        yield session
+
+
 SessionDep = Annotated[Session, Depends(get_session)]
+OptionalSessionDep = Annotated[Session | None, Depends(get_optional_session)]

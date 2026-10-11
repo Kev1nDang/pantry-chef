@@ -29,6 +29,7 @@ export function GroceryForm({ onAdd }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. eggs"
+          maxLength={100}
           autoComplete="off"
         />
       </label>
