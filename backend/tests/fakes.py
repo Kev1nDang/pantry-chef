@@ -23,6 +23,36 @@ def recipe(id: str, ingredients: list[tuple], tags: list[str] | None = None) -> 
     )
 
 
+def make_pdf(lines: list[str], pages: int = 1) -> bytes:
+    """A minimal valid PDF whose pages show `lines` in Helvetica (empty `lines`: a "scan")."""
+    text = "".join(f"({line}) Tj 0 -16 Td " for line in lines)
+    stream = f"BT /F1 12 Tf 72 720 Td {text}ET".encode() if lines else b""
+    kids = " ".join(f"{4 + i} 0 R" for i in range(pages))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {pages} >>".encode(),
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    objects += [
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 3 0 R "
+        b"/Resources << /Font << /F1 " + font + b" >> >> >>"
+    ] * pages
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for n, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{n} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    )
+    return bytes(out)
+
+
 class FakeSession:
     """Returns canned rows for every `scalars()` call and records the SQL it was asked to run."""
 

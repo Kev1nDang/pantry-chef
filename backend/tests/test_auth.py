@@ -37,6 +37,24 @@ def test_pantry_rejects_invalid_token(client):
     assert res.status_code == 401
 
 
+def test_me_returns_identity_from_token(client):
+    user_id = str(uuid.uuid4())
+    token = make_token(sub=user_id, email="cook@example.com", app_metadata={"provider": "email"})
+    res = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+    assert res.json() == {"id": user_id, "email": "cook@example.com", "provider": "email"}
+
+
+@pytest.mark.parametrize("sub", [None, "not-a-uuid"], ids=["missing-sub", "bad-sub"])
+def test_me_rejects_tokens_without_a_user(client, sub):
+    token = make_token(sub=sub)
+    assert client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_me_requires_token(client):
+    assert client.get("/api/me").status_code == 401
+
+
 def test_valid_token_gets_past_auth(client):
     # No database is configured in tests, so a valid token should reach the DB layer (503).
     res = client.get("/api/pantry", headers={"Authorization": f"Bearer {make_token()}"})

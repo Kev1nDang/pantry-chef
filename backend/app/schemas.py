@@ -91,6 +91,25 @@ class ParseResponse(ApiModel):
     items: list[ParsedItem]
 
 
+class ParseFileResponse(ParseResponse):
+    file_name: str
+    kind: Literal["pdf", "text"]
+    pages: int
+    # "text": read from the file's text; "scan": a PDF with no text layer, read by Claude.
+    method: Literal["text", "scan"]
+    # The extracted text was longer than the parser accepts and was cut off.
+    truncated: bool
+
+
+# --- Account --------------------------------------------------------------------------------
+
+
+class MeOut(ApiModel):
+    id: uuid.UUID
+    email: str | None = None
+    provider: str | None = None
+
+
 class GenerateRequest(ApiModel):
     # The client's current groceries. Omit to use the pantry saved on the server.
     pantry: list[MatchGrocery] | None = Field(default=None, max_length=200)

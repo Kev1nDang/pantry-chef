@@ -36,10 +36,11 @@ def decode_supabase_jwt(token: str, settings: Settings) -> dict[str, Any]:
     return jwt.decode(token, key, algorithms=algorithms, audience="authenticated")
 
 
-def get_current_user_id(
+def get_current_claims(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> uuid.UUID:
+) -> dict[str, Any]:
+    """The verified token's claims; `sub` is guaranteed to be a valid UUID."""
     unauthorized = HTTPException(
         status.HTTP_401_UNAUTHORIZED, "Invalid or missing token", {"WWW-Authenticate": "Bearer"}
     )
@@ -47,9 +48,17 @@ def get_current_user_id(
         raise unauthorized
     try:
         claims = decode_supabase_jwt(creds.credentials, settings)
-        return uuid.UUID(claims["sub"])
-    except (jwt.PyJWTError, KeyError, ValueError) as e:
+        uuid.UUID(claims["sub"])
+        return claims
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError) as e:
         raise unauthorized from e
+
+
+CurrentClaims = Annotated[dict[str, Any], Depends(get_current_claims)]
+
+
+def get_current_user_id(claims: CurrentClaims) -> uuid.UUID:
+    return uuid.UUID(claims["sub"])
 
 
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
