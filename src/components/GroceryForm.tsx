@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { unitLabel } from '../lib/format';
 import { UNITS, type GroceryItem, type Unit } from '../types';
 
 interface Props {
@@ -50,7 +51,7 @@ export function GroceryForm({ onAdd }: Props) {
         <select value={unit} onChange={(e) => setUnit(e.target.value as Unit)}>
           {UNITS.map((u) => (
             <option key={u} value={u}>
-              {u}
+              {unitLabel(u)}
             </option>
           ))}
         </select>

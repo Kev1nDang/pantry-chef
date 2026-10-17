@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { messageOf, parseGroceryText, type NewGrocery } from '../lib/api';
+import { unitLabel } from '../lib/format';
 import { UNITS, type Unit } from '../types';
 import { Modal } from './Modal';
 
@@ -125,7 +126,7 @@ export function PasteListDialog({ token, onAdd, onClose }: Props) {
                   >
                     {UNITS.map((u) => (
                       <option key={u} value={u}>
-                        {u}
+                        {unitLabel(u)}
                       </option>
                     ))}
                   </select>

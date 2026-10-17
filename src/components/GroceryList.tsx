@@ -1,3 +1,4 @@
+import { unitLabel } from '../lib/format';
 import type { GroceryItem } from '../types';
 
 interface Props {
@@ -25,7 +26,7 @@ export function GroceryList({ items, onRemove, onAmountChange }: Props) {
               value={item.amount}
               onChange={(e) => onAmountChange(item.id, Number(e.target.value))}
             />
-            <span className="unit">{item.unit}</span>
+            <span className="unit">{unitLabel(item.unit, item.amount)}</span>
           </span>
           <button
             className="btn-icon"

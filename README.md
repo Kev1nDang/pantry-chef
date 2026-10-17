@@ -6,7 +6,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 
 ## Features
 
-- **Grocery input with amounts and units:** pcs, g, kg, ml, l, tsp, tbsp, cup. If you add the same item twice, the amounts are merged.
+- **Grocery input with amounts and units:** pieces, grams, kilograms, milliliters, liters, teaspoons, tablespoons, cups. If you add the same item twice, the amounts are merged.
 - **Smart matching:**
   - Units are converted, so 1 kg of rice covers a recipe that needs 250 g.
   - Simple plurals match their singular ("tomatoes" matches "tomato").
