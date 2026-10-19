@@ -32,6 +32,8 @@ interface MatchResult {
   error: string | null;
 }
 
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 function addTo(list: GroceryItem[], item: NewGrocery): GroceryItem[] {
   const existing = list.find(
     (g) => g.name.toLowerCase() === item.name.toLowerCase() && g.unit === item.unit,
@@ -101,17 +103,24 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span aria-hidden>🥕</span> Pantry Chef
+          <span className="brand-mark" aria-hidden>
+            🥕
+          </span>
+          <div>
+            <h1>Pantry Chef</h1>
+            <p className="tagline">Tell us what you have. We'll tell you what to cook.</p>
+          </div>
         </div>
-        <p className="tagline">Tell us what you have. We'll tell you what to cook.</p>
         <AuthBar session={session} syncStatus={syncStatus} />
       </header>
 
       <main className="layout">
         <section className="panel pantry">
           <div className="panel-head">
-            <h2>Your groceries</h2>
-            <div>
+            <h2>
+              Your groceries {groceries.length > 0 && <span className="count">{groceries.length}</span>}
+            </h2>
+            <div className="panel-actions">
               <button className="btn btn-ghost" onClick={() => setDialog('paste')}>
                 Paste a list
               </button>
@@ -151,7 +160,7 @@ export default function App() {
         <section className="panel results">
           <div className="panel-head">
             <h2>
-              Recipes <span className="count">{visible.length}</span>
+              Recipes {!error && <span className="count">{visible.length}</span>}
               {loading && <span className="spinner" aria-label="Loading recipes" />}
             </h2>
             <div className="filters">
@@ -164,7 +173,7 @@ export default function App() {
                 <option value="">Any diet</option>
                 {DIETS.map((d) => (
                   <option key={d} value={d}>
-                    {d}
+                    {capitalize(d)}
                   </option>
                 ))}
               </select>
@@ -186,8 +195,12 @@ export default function App() {
 
           {error ? (
             <div className="empty-state" role="alert">
-              <p>Couldn't load recipes: {error}</p>
-              <button className="btn btn-ghost" onClick={() => setRetry((n) => n + 1)}>
+              <div className="empty-emoji" aria-hidden>
+                🍳
+              </div>
+              <h3>Couldn't load recipes</h3>
+              <p>{error}</p>
+              <button className="btn btn-secondary" onClick={() => setRetry((n) => n + 1)}>
                 Try again
               </button>
             </div>
@@ -196,16 +209,49 @@ export default function App() {
               <div className="empty-emoji" aria-hidden>
                 🧺
               </div>
-              <p>Add a few groceries to see recipes you can make.</p>
+              <h3>What's in your kitchen?</h3>
+              <p>Add a few groceries and we'll show the recipes you can make right now.</p>
+              <div className="empty-actions">
+                <button className="btn btn-primary" onClick={() => addGroceries(SAMPLE)}>
+                  Try sample groceries
+                </button>
+                <button className="btn btn-secondary" onClick={() => setDialog('paste')}>
+                  Paste a list
+                </button>
+              </div>
             </div>
           ) : visible.length === 0 ? (
-            <div className="empty-state">
-              <p>
-                {loading
-                  ? 'Finding recipes…'
-                  : 'No recipes match this filter yet — try adding more groceries, or let AI cook something up.'}
-              </p>
-            </div>
+            loading ? (
+              <div className="recipe-grid" aria-hidden>
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="recipe-card skeleton" />
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-emoji" aria-hidden>
+                  🔍
+                </div>
+                <h3>No matches {filter !== 'all' || diet ? 'for this filter' : 'yet'}</h3>
+                <p>Try adding more groceries, or let AI cook something up from what you have.</p>
+                <div className="empty-actions">
+                  {(filter !== 'all' || diet) && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setFilter('all');
+                        setDiet('');
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={() => setDialog('cook')}>
+                    ✨ Cook with AI
+                  </button>
+                </div>
+              </div>
+            )
           ) : (
             <div className={`recipe-grid ${loading ? 'stale' : ''}`}>
               {visible.map((m) => (

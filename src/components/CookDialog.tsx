@@ -63,7 +63,7 @@ export function CookDialog({ token, groceries, onCooked, onClose }: Props) {
               {DIETS.map((d) => (
                 <label key={d} className={`chip ${dietary.includes(d) ? 'active' : ''}`}>
                   <input type="checkbox" checked={dietary.includes(d)} onChange={() => toggle(d)} />
-                  {d}
+                  {d.charAt(0).toUpperCase() + d.slice(1)}
                 </label>
               ))}
             </div>

@@ -14,6 +14,15 @@ export function Modal({ labelledBy, onClose, children }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Keep the page behind the dialog from scrolling.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   return (
     <div className="overlay" onClick={onClose}>
       <div
