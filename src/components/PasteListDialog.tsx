@@ -8,6 +8,7 @@ interface Props {
   /** null when signed out — parsing needs an account */
   token: string | null;
   onAdd: (items: NewGrocery[]) => void;
+  onSignIn: () => void;
   onClose: () => void;
 }
 
@@ -21,7 +22,7 @@ interface Row {
 
 const isValid = (r: Row) => r.name.trim() !== '' && Number(r.amount) > 0;
 
-export function PasteListDialog({ token, onAdd, onClose }: Props) {
+export function PasteListDialog({ token, onSignIn, onAdd, onClose }: Props) {
   const [text, setText] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -63,7 +64,12 @@ export function PasteListDialog({ token, onAdd, onClose }: Props) {
       </header>
 
       {!token ? (
-        <p className="notice">Sign in to use AI list parsing.</p>
+        <div className="banner banner-action">
+          <span>Sign in to use AI list parsing. It’s free and only takes an email.</span>
+          <button className="btn btn-primary" onClick={onSignIn}>
+            Sign in
+          </button>
+        </div>
       ) : rows === null ? (
         <>
           <textarea
@@ -92,7 +98,7 @@ export function PasteListDialog({ token, onAdd, onClose }: Props) {
       ) : (
         <>
           {rows.length === 0 ? (
-            <p className="notice">No groceries found in that text.</p>
+            <p className="banner">No groceries found in that text.</p>
           ) : (
             <ul className="review-list">
               {rows.map((r) => (
