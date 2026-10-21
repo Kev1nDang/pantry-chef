@@ -73,7 +73,7 @@ Requires **Python 3.11+** and a [Supabase](https://supabase.com) project.
 
 3. **Run checks:** `pytest`, `ruff check .` and `ruff format --check .`. Tests fake the database and the Claude API, so they need no secrets or network.
 
-While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8000`.
+While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8000`. If that port is taken (on Windows, Hyper-V/WSL can reserve it), run the API with `fastapi dev app/main.py --port 8001` and set `API_PROXY_TARGET=http://localhost:8001` in `.env.local`.
 
 | Method | Path                | Auth | Purpose                           |
 | ------ | ------------------- | ---- | --------------------------------- |
