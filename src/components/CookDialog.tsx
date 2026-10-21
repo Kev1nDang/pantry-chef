@@ -10,10 +10,11 @@ interface Props {
   token: string | null;
   groceries: GroceryItem[];
   onCooked: (match: RecipeMatch) => void;
+  onSignIn: () => void;
   onClose: () => void;
 }
 
-export function CookDialog({ token, groceries, onCooked, onClose }: Props) {
+export function CookDialog({ token, onSignIn, groceries, onCooked, onClose }: Props) {
   const [dietary, setDietary] = useState<string[]>([]);
   const [maxMinutes, setMaxMinutes] = useState('');
   const [servings, setServings] = useState('');
@@ -47,14 +48,19 @@ export function CookDialog({ token, groceries, onCooked, onClose }: Props) {
   return (
     <Modal labelledBy="cook-title" onClose={onClose}>
       <header>
-        <h2 id="cook-title">Cook something from my pantry</h2>
+        <h2 id="cook-title">Create a recipe with AI</h2>
         <p className="recipe-meta">AI invents a recipe around the {pantry.length} items you have.</p>
       </header>
 
       {!token ? (
-        <p className="notice">Sign in to generate recipes with AI.</p>
+        <div className="banner banner-action">
+          <span>Sign in to generate recipes with AI. It’s free and only takes an email.</span>
+          <button className="btn btn-primary" onClick={onSignIn}>
+            Sign in
+          </button>
+        </div>
       ) : pantry.length === 0 ? (
-        <p className="notice">Add some groceries first.</p>
+        <p className="banner">Add some groceries first.</p>
       ) : (
         <form className="cook-form" onSubmit={cook}>
           <fieldset>
@@ -101,8 +107,8 @@ export function CookDialog({ token, groceries, onCooked, onClose }: Props) {
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Cooking up a recipe…' : 'Generate recipe'}
+            <button type="submit" className={`btn btn-ai ${loading ? 'is-loading' : ''}`} disabled={loading}>
+              {loading ? 'Cooking up a recipe…' : '✨ Generate recipe'}
             </button>
           </div>
         </form>

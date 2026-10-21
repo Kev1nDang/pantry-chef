@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AuthBar } from './components/AuthBar';
 import { CookDialog } from './components/CookDialog';
-import { GroceryForm } from './components/GroceryForm';
-import { GroceryList } from './components/GroceryList';
+import { PantryView } from './components/PantryView';
 import { PasteListDialog } from './components/PasteListDialog';
-import { RecipeCard } from './components/RecipeCard';
 import { RecipeDetail } from './components/RecipeDetail';
+import { RecipesView, type Filter } from './components/RecipesView';
+import { ShoppingView } from './components/ShoppingView';
+import { Sidebar, TabBar, type View } from './components/Sidebar';
+import { SignInDialog } from './components/SignInDialog';
+import { ToastBar } from './components/ToastBar';
 import { matchRecipes, messageOf, type NewGrocery } from './lib/api';
 import { usePantry } from './lib/usePantry';
 import { useSession } from './lib/useSession';
-import type { GroceryItem, RecipeMatch } from './types';
+import { useShoppingList } from './lib/useShoppingList';
+import { useToast } from './lib/useToast';
+import type { GroceryItem, RecipeIngredient, RecipeMatch } from './types';
 
 const SAMPLE: NewGrocery[] = [
   { name: 'eggs', amount: 6, unit: 'pcs' },
@@ -20,10 +24,7 @@ const SAMPLE: NewGrocery[] = [
   { name: 'rice', amount: 1, unit: 'kg' },
 ];
 
-const DIETS = ['vegetarian', 'vegan', 'high-protein', 'quick'];
-
-type Filter = 'all' | 'ready' | 'close';
-type Dialog = 'paste' | 'cook' | null;
+type Dialog = 'paste' | 'cook' | 'signin' | null;
 
 interface MatchResult {
   /** the requestKey these matches answer */
@@ -32,17 +33,18 @@ interface MatchResult {
   error: string | null;
 }
 
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const sameItem = (a: { name: string; unit: string }, b: { name: string; unit: string }) =>
+  a.name.toLowerCase() === b.name.toLowerCase() && a.unit === b.unit;
 
 function addTo(list: GroceryItem[], item: NewGrocery): GroceryItem[] {
-  const existing = list.find(
-    (g) => g.name.toLowerCase() === item.name.toLowerCase() && g.unit === item.unit,
-  );
+  const existing = list.find((g) => sameItem(g, item));
   if (existing) {
     return list.map((g) => (g === existing ? { ...g, amount: g.amount + item.amount } : g));
   }
   return [...list, { ...item, id: crypto.randomUUID() }];
 }
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export default function App() {
   const session = useSession();
@@ -51,7 +53,10 @@ export default function App() {
     session?.user.id ?? null,
     token,
   );
+  const shopping = useShoppingList();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
+  const [view, setView] = useState<View>(() => (groceries.length > 0 ? 'recipes' : 'pantry'));
   const [filter, setFilter] = useState<Filter>('all');
   const [diet, setDiet] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -89,190 +94,179 @@ export default function App() {
   const loading = pantry.length > 0 && result.key !== requestKey;
   const matches = pantry.length > 0 ? result.matches : [];
   const error = loading ? null : result.error;
+  const readyCount = matches.filter((m) => m.ready).length;
+  const closeCount = matches.filter((m) => !m.ready && m.missingCount <= 2).length;
+  const toBuyCount = shopping.items.filter((i) => !i.checked).length;
+  const openMatch = matches.find((m) => m.recipe.id === openId) ?? aiMatch;
 
-  const visible = matches.filter((m) =>
-    filter === 'ready' ? m.ready : filter === 'close' ? m.missingCount <= 2 : true,
-  );
-  const openMatch = matches.find((m) => m.recipe.id === openId);
+  function navigate(next: View) {
+    setView(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /** Change the pantry and offer to undo it. */
+  function changePantry(update: (prev: GroceryItem[]) => GroceryItem[], message: string) {
+    const before = groceries;
+    setGroceries(update);
+    showToast(message, { label: 'Undo', run: () => setGroceries(() => before) });
+  }
 
   function addGroceries(items: NewGrocery[]) {
     setGroceries((prev) => items.reduce(addTo, prev));
+    showToast(items.length === 1 ? `Added ${items[0].name}` : `Added ${plural(items.length, 'item')} to your pantry`);
   }
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden>
-            🥕
-          </span>
-          <div>
-            <h1>Pantry Chef</h1>
-            <p className="tagline">Tell us what you have. We'll tell you what to cook.</p>
-          </div>
-        </div>
-        <AuthBar session={session} syncStatus={syncStatus} />
-      </header>
+  function cooked(used: RecipeIngredient[], title: string) {
+    changePantry(
+      (prev) =>
+        prev.map((g) => {
+          const u = used.find((i) => sameItem(i, g));
+          return u ? { ...g, amount: Math.max(0, Math.round((g.amount - u.amount) * 100) / 100) } : g;
+        }),
+      `Enjoy your ${title}! Pantry updated.`,
+    );
+    setOpenId(null);
+    setAiMatch(null);
+  }
 
-      <main className="layout">
-        <section className="panel pantry">
-          <div className="panel-head">
-            <h2>
-              Your groceries {groceries.length > 0 && <span className="count">{groceries.length}</span>}
-            </h2>
-            <div className="panel-actions">
-              <button className="btn btn-ghost" onClick={() => setDialog('paste')}>
-                Paste a list
-              </button>
-              {groceries.length > 0 ? (
-                <button className="btn btn-ghost" onClick={() => setGroceries(() => [])}>
-                  Clear all
-                </button>
-              ) : (
-                <button className="btn btn-ghost" onClick={() => addGroceries(SAMPLE)}>
-                  Try sample
-                </button>
-              )}
-            </div>
-          </div>
-          {syncError && (
-            <p className="error-text" role="alert">
-              {syncError}
-            </p>
-          )}
-          <GroceryForm onAdd={(item) => addGroceries([item])} />
-          <GroceryList
-            items={groceries}
-            onRemove={(id) => setGroceries((prev) => prev.filter((g) => g.id !== id))}
+  function stockBought() {
+    const bought = shopping.items.filter((i) => i.checked);
+    setGroceries((prev) => bought.reduce<GroceryItem[]>((list, { name, amount, unit }) => addTo(list, { name, amount, unit }), prev));
+    shopping.setItems((prev) => prev.filter((i) => !i.checked));
+    showToast(`Put ${plural(bought.length, 'item')} away in your pantry`, {
+      label: 'View pantry',
+      run: () => navigate('pantry'),
+    });
+  }
+
+  const counts = { pantry: groceries.length, recipes: readyCount, shopping: toBuyCount };
+
+  return (
+    <div className="shell">
+      <Sidebar
+        view={view}
+        onNavigate={navigate}
+        counts={counts}
+        session={session}
+        syncStatus={syncStatus}
+        onSignIn={() => setDialog('signin')}
+      />
+
+      <main className="main" key={view}>
+        {view === 'pantry' && (
+          <PantryView
+            groceries={groceries}
+            syncError={syncError}
+            recipeCounts={loading ? null : { total: matches.length, ready: readyCount }}
+            stats={[
+              { label: 'In your pantry', value: groceries.length, emoji: '🧺', tone: 'accent' },
+              {
+                label: 'Ready to cook',
+                value: loading && matches.length === 0 ? null : readyCount,
+                emoji: '✅',
+                tone: 'ready',
+                onClick: () => {
+                  setFilter('ready');
+                  navigate('recipes');
+                },
+              },
+              {
+                label: 'Almost there',
+                value: loading && matches.length === 0 ? null : closeCount,
+                emoji: '⏳',
+                tone: 'close',
+                onClick: () => {
+                  setFilter('close');
+                  navigate('recipes');
+                },
+              },
+              { label: 'To buy', value: toBuyCount, emoji: '🛒', onClick: () => navigate('shopping') },
+            ]}
+            onAdd={addGroceries}
+            onRemove={(item) =>
+              changePantry((prev) => prev.filter((g) => g.id !== item.id), `Removed ${item.name}`)
+            }
             onAmountChange={(id, amount) =>
               setGroceries((prev) => prev.map((g) => (g.id === id ? { ...g, amount } : g)))
             }
+            onClear={() => changePantry(() => [], 'Pantry cleared')}
+            onPaste={() => setDialog('paste')}
+            onSample={() => addGroceries(SAMPLE)}
+            onSeeRecipes={() => navigate('recipes')}
           />
-          <button
-            className="btn btn-primary btn-block"
-            disabled={groceries.length === 0}
-            onClick={() => setDialog('cook')}
-          >
-            ✨ Cook something from my pantry
-          </button>
-        </section>
-
-        <section className="panel results">
-          <div className="panel-head">
-            <h2>
-              Recipes {!error && <span className="count">{visible.length}</span>}
-              {loading && <span className="spinner" aria-label="Loading recipes" />}
-            </h2>
-            <div className="filters">
-              <select
-                className="diet-select"
-                value={diet}
-                onChange={(e) => setDiet(e.target.value)}
-                aria-label="Dietary filter"
-              >
-                <option value="">Any diet</option>
-                {DIETS.map((d) => (
-                  <option key={d} value={d}>
-                    {capitalize(d)}
-                  </option>
-                ))}
-              </select>
-              <div className="segmented" role="tablist">
-                {(['all', 'ready', 'close'] as Filter[]).map((f) => (
-                  <button
-                    key={f}
-                    role="tab"
-                    aria-selected={filter === f}
-                    className={filter === f ? 'active' : ''}
-                    onClick={() => setFilter(f)}
-                  >
-                    {f === 'all' ? 'All' : f === 'ready' ? 'Ready now' : 'Almost'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {error ? (
-            <div className="empty-state" role="alert">
-              <div className="empty-emoji" aria-hidden>
-                🍳
-              </div>
-              <h3>Couldn't load recipes</h3>
-              <p>{error}</p>
-              <button className="btn btn-secondary" onClick={() => setRetry((n) => n + 1)}>
-                Try again
-              </button>
-            </div>
-          ) : groceries.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-emoji" aria-hidden>
-                🧺
-              </div>
-              <h3>What's in your kitchen?</h3>
-              <p>Add a few groceries and we'll show the recipes you can make right now.</p>
-              <div className="empty-actions">
-                <button className="btn btn-primary" onClick={() => addGroceries(SAMPLE)}>
-                  Try sample groceries
-                </button>
-                <button className="btn btn-secondary" onClick={() => setDialog('paste')}>
-                  Paste a list
-                </button>
-              </div>
-            </div>
-          ) : visible.length === 0 ? (
-            loading ? (
-              <div className="recipe-grid" aria-hidden>
-                {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className="recipe-card skeleton" />
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <div className="empty-emoji" aria-hidden>
-                  🔍
-                </div>
-                <h3>No matches {filter !== 'all' || diet ? 'for this filter' : 'yet'}</h3>
-                <p>Try adding more groceries, or let AI cook something up from what you have.</p>
-                <div className="empty-actions">
-                  {(filter !== 'all' || diet) && (
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setFilter('all');
-                        setDiet('');
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
-                  <button className="btn btn-primary" onClick={() => setDialog('cook')}>
-                    ✨ Cook with AI
-                  </button>
-                </div>
-              </div>
-            )
-          ) : (
-            <div className={`recipe-grid ${loading ? 'stale' : ''}`}>
-              {visible.map((m) => (
-                <RecipeCard key={m.recipe.id} match={m} onOpen={() => setOpenId(m.recipe.id)} />
-              ))}
-            </div>
-          )}
-        </section>
+        )}
+        {view === 'recipes' && (
+          <RecipesView
+            matches={matches}
+            loading={loading}
+            error={error}
+            pantryCount={pantry.length}
+            filter={filter}
+            diet={diet}
+            onFilter={setFilter}
+            onDiet={setDiet}
+            onRetry={() => setRetry((n) => n + 1)}
+            onOpen={setOpenId}
+            onCook={() => setDialog('cook')}
+            onGoPantry={() => navigate('pantry')}
+          />
+        )}
+        {view === 'shopping' && (
+          <ShoppingView
+            items={shopping.items}
+            onAdd={(name) => shopping.add([{ name, amount: 1, unit: 'pcs' }])}
+            onToggle={(id) =>
+              shopping.setItems((prev) => prev.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)))
+            }
+            onRemove={(item) => {
+              const before = shopping.items;
+              shopping.setItems((prev) => prev.filter((i) => i.id !== item.id));
+              showToast(`Removed ${item.name}`, { label: 'Undo', run: () => shopping.setItems(() => before) });
+            }}
+            onStock={stockBought}
+            onGoRecipes={() => navigate('recipes')}
+          />
+        )}
       </main>
 
+      <TabBar view={view} onNavigate={navigate} counts={counts} />
+      <ToastBar toast={toast} onDismiss={dismissToast} />
+
       {openMatch && (
-        <RecipeDetail key={openMatch.recipe.id} match={openMatch} onClose={() => setOpenId(null)} />
+        <RecipeDetail
+          key={openMatch.recipe.id}
+          match={openMatch}
+          onClose={() => {
+            setOpenId(null);
+            setAiMatch(null);
+          }}
+          onAddToShopping={(items) => {
+            shopping.add(items, openMatch.recipe.title);
+            showToast(`Added ${plural(items.length, 'item')} to your shopping list`, {
+              label: 'View list',
+              run: () => {
+                setOpenId(null);
+                setAiMatch(null);
+                navigate('shopping');
+              },
+            });
+          }}
+          onCooked={(used) => cooked(used, openMatch.recipe.title)}
+        />
       )}
-      {aiMatch && <RecipeDetail key={aiMatch.recipe.id} match={aiMatch} onClose={() => setAiMatch(null)} />}
       {dialog === 'paste' && (
-        <PasteListDialog token={token} onAdd={addGroceries} onClose={() => setDialog(null)} />
+        <PasteListDialog
+          token={token}
+          onAdd={addGroceries}
+          onSignIn={() => setDialog('signin')}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog === 'cook' && (
         <CookDialog
           token={token}
           groceries={groceries}
+          onSignIn={() => setDialog('signin')}
           onCooked={(m) => {
             setDialog(null);
             setAiMatch(m);
@@ -280,6 +274,7 @@ export default function App() {
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === 'signin' && <SignInDialog onClose={() => setDialog(null)} />}
     </div>
   );
 }

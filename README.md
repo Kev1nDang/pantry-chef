@@ -4,16 +4,36 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 
 > 🚧 **This is an ongoing project under active development.** The React frontend now reads recipes and matches from a FastAPI + Supabase backend, so you need the API running (with a database) to see recipes. Expect breaking changes; see [docs/ROADMAP.md](docs/ROADMAP.md) for where things are headed.
 
+## Screenshots
+
+![Pantry: stat widgets, quick-add bar and grocery list](docs/screenshots/pantry.png)
+
+| Recipes matched to your pantry | Recipe detail |
+| --- | --- |
+| ![Recipes view with filters and match cards](docs/screenshots/recipes.png) | ![Recipe detail with ingredient status and steps](docs/screenshots/recipe-detail.png) |
+| **Shopping list** | **First run** |
+| ![Shopping list with to-buy and in-cart sections](docs/screenshots/shopping-list.png) | ![Onboarding for an empty pantry](docs/screenshots/onboarding.png) |
+
+<p align="center">
+  <img src="docs/screenshots/mobile-pantry.png" alt="Pantry on mobile (dark mode)" width="240" />
+  <img src="docs/screenshots/mobile-recipes.png" alt="Recipes on mobile (dark mode)" width="240" />
+  <img src="docs/screenshots/mobile-recipe-detail.png" alt="Recipe detail as a bottom sheet on mobile" width="240" />
+</p>
+
 ## Features
 
-- **Grocery input with amounts and units:** pieces, grams, kilograms, milliliters, liters, teaspoons, tablespoons, cups. If you add the same item twice, the amounts are merged.
+- **Three-step flow:** **Pantry → Recipes → Shopping list**, with a sidebar on desktop and a bottom tab bar on mobile. Each step shows a live count.
+
+- **Grocery input with amounts and units:** pieces, grams, kilograms, milliliters, liters, teaspoons, tablespoons, cups. If you add the same item twice, the amounts are merged. Each item has −/+ steppers and a food emoji, and stat widgets summarize what you can cook.
 - **Smart matching:**
   - Units are converted, so 1 kg of rice covers a recipe that needs 250 g.
   - Simple plurals match their singular ("tomatoes" matches "tomato").
   - Mass and volume are compared approximately (about 1 g per ml).
   - Optional ingredients count for less.
-- **Ranked results** with a coverage meter, **Ready now** / **Almost** filters and a dietary filter (vegetarian, vegan, …).
-- **Recipe detail view:** each ingredient is labelled Have, Low or Need. You also get an auto-generated shopping list, the steps, and a servings stepper that scales quantities.
+- **Ranked results** with a coverage meter, search, **Ready now** / **Almost there** tabs and dietary chips (vegetarian, vegan, …).
+- **Recipe detail view:** each ingredient is labelled Have, Low or Need. A servings stepper scales quantities, and you can tick off steps as you cook. **Add missing items to shopping list** sends what you lack to your list. **I cooked this** takes the ingredients you used out of your pantry.
+- **Shopping list:** to-buy and in-cart sections with a progress bar. **Put away in pantry** moves bought items back into your pantry. The list is stored in this browser.
+- **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
 - **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
 - **AI features (Claude, signed-in users):**
   - **Paste a list:** paste a shopping list or receipt; AI turns it into items you review and edit before adding.
@@ -73,7 +93,7 @@ Requires **Python 3.11+** and a [Supabase](https://supabase.com) project.
 
 3. **Run checks:** `pytest`, `ruff check .` and `ruff format --check .`. Tests fake the database and the Claude API, so they need no secrets or network.
 
-While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8000`.
+While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8000`. If that port is taken (on Windows, Hyper-V/WSL can reserve it), run the API with `fastapi dev app/main.py --port 8001` and set `API_PROXY_TARGET=http://localhost:8001` in `.env.local`.
 
 | Method | Path                | Auth | Purpose                           |
 | ------ | ------------------- | ---- | --------------------------------- |
@@ -112,21 +132,31 @@ supabase/
 ├── migrations/             # SQL schema (source of truth) + row level security
 └── seed.sql                # Seed recipes
 src/
-├── App.tsx                 # Page layout, recipe matching requests, filters, dialogs
+├── App.tsx                 # App shell: navigation, recipe matching requests, dialogs, toasts
 ├── components/
-│   ├── AuthBar.tsx         # Magic-link sign-in / sign-out, sync status
-│   ├── GroceryForm.tsx     # Name / amount / unit input
-│   ├── GroceryList.tsx     # Editable grocery list
+│   ├── Sidebar.tsx         # Sidebar nav + account card; TabBar for mobile
+│   ├── SignInDialog.tsx    # Magic-link sign-in
+│   ├── PantryView.tsx      # Pantry page: stats, quick add, list, onboarding
+│   ├── RecipesView.tsx     # Recipes page: search, tabs, diet chips, card grid
+│   ├── ShoppingView.tsx    # Shopping list page
+│   ├── StatTiles.tsx       # Count-up stat widgets
+│   ├── GroceryForm.tsx     # Quick-add bar: name / amount / unit
+│   ├── GroceryList.tsx     # Editable grocery list with steppers
 │   ├── PasteListDialog.tsx # AI: paste a list → review → add
 │   ├── CookDialog.tsx      # AI: generate a recipe from the pantry
 │   ├── RecipeCard.tsx      # Ranked result card with coverage meter
-│   ├── RecipeDetail.tsx    # Modal: ingredient status, servings scaling, shopping list, steps
-│   └── Modal.tsx           # Shared dialog shell
+│   ├── RecipeDetail.tsx    # Ingredient status, servings scaling, steps, "I cooked this"
+│   ├── ToastBar.tsx        # Toast with optional Undo action
+│   ├── Icon.tsx            # Inline SVG icons
+│   └── Modal.tsx           # Shared dialog shell (bottom sheet on mobile)
 ├── lib/
 │   ├── api.ts              # Typed API client
 │   ├── supabase.ts         # Supabase client (null when not configured)
 │   ├── useSession.ts       # Current Supabase session
 │   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry
+│   ├── useShoppingList.ts  # Shopping list in localStorage
+│   ├── useToast.ts         # Single toast with auto-dismiss
+│   ├── foodEmoji.ts        # Grocery name → emoji
 │   └── format.ts           # Amount formatting
 ├── types.ts                # Shared domain types
 └── index.css               # Styles and theme tokens
