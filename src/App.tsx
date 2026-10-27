@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AddWithAIDialog, type InitialUpload } from './components/AddWithAIDialog';
 import { CookDialog } from './components/CookDialog';
 import { PantryView } from './components/PantryView';
-import { PasteListDialog } from './components/PasteListDialog';
+import { PhotoViewer } from './components/PhotoViewer';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipesView, type Filter } from './components/RecipesView';
 import { ShoppingView } from './components/ShoppingView';
@@ -10,6 +11,7 @@ import { SignInDialog } from './components/SignInDialog';
 import { ToastBar } from './components/ToastBar';
 import { matchRecipes, messageOf, type NewGrocery } from './lib/api';
 import { usePantry } from './lib/usePantry';
+import { usePhotos, type SavedPhoto } from './lib/usePhotos';
 import { useSession } from './lib/useSession';
 import { useShoppingList } from './lib/useShoppingList';
 import { useToast } from './lib/useToast';
@@ -24,7 +26,12 @@ const SAMPLE: NewGrocery[] = [
   { name: 'rice', amount: 1, unit: 'kg' },
 ];
 
-type Dialog = 'paste' | 'cook' | 'signin' | null;
+type Dialog =
+  | { kind: 'add'; initial?: InitialUpload }
+  | { kind: 'photo'; photo: SavedPhoto }
+  | { kind: 'cook' }
+  | { kind: 'signin' }
+  | null;
 
 interface MatchResult {
   /** the requestKey these matches answer */
@@ -53,6 +60,7 @@ export default function App() {
     session?.user.id ?? null,
     token,
   );
+  const photoStore = usePhotos(session?.user.id ?? null);
   const shopping = useShoppingList();
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
@@ -116,6 +124,17 @@ export default function App() {
     showToast(items.length === 1 ? `Added ${items[0].name}` : `Added ${plural(items.length, 'item')} to your pantry`);
   }
 
+  /** Read a saved photo again: its signed link is fetched back into a file for the dialog. */
+  async function readSavedPhoto(photo: SavedPhoto) {
+    try {
+      const res = await fetch(photo.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDialog({ kind: 'add', initial: { file: await res.blob(), name: 'photo.jpg', saved: true } });
+    } catch {
+      showToast('Couldn’t open that photo. Please try again.');
+    }
+  }
+
   function cooked(used: RecipeIngredient[], title: string) {
     changePantry(
       (prev) =>
@@ -149,7 +168,7 @@ export default function App() {
         counts={counts}
         session={session}
         syncStatus={syncStatus}
-        onSignIn={() => setDialog('signin')}
+        onSignIn={() => setDialog({ kind: 'signin' })}
       />
 
       <main className="main" key={view}>
@@ -157,6 +176,9 @@ export default function App() {
           <PantryView
             groceries={groceries}
             syncError={syncError}
+            signedIn={token !== null}
+            photos={photoStore.photos}
+            photosError={photoStore.error}
             recipeCounts={loading ? null : { total: matches.length, ready: readyCount }}
             stats={[
               { label: 'In your pantry', value: groceries.length, emoji: '🧺', tone: 'accent' },
@@ -190,7 +212,9 @@ export default function App() {
               setGroceries((prev) => prev.map((g) => (g.id === id ? { ...g, amount } : g)))
             }
             onClear={() => changePantry(() => [], 'Pantry cleared')}
-            onPaste={() => setDialog('paste')}
+            onAddWithAI={() => setDialog({ kind: 'add' })}
+            onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
+            onOpenPhoto={(photo) => setDialog({ kind: 'photo', photo })}
             onSample={() => addGroceries(SAMPLE)}
             onSeeRecipes={() => navigate('recipes')}
           />
@@ -207,7 +231,7 @@ export default function App() {
             onDiet={setDiet}
             onRetry={() => setRetry((n) => n + 1)}
             onOpen={setOpenId}
-            onCook={() => setDialog('cook')}
+            onCook={() => setDialog({ kind: 'cook' })}
             onGoPantry={() => navigate('pantry')}
           />
         )}
@@ -254,19 +278,32 @@ export default function App() {
           onCooked={(used) => cooked(used, openMatch.recipe.title)}
         />
       )}
-      {dialog === 'paste' && (
-        <PasteListDialog
+      {dialog?.kind === 'add' && (
+        <AddWithAIDialog
           token={token}
+          initial={dialog.initial}
+          onSavePhoto={photoStore.save}
           onAdd={addGroceries}
-          onSignIn={() => setDialog('signin')}
+          onSignIn={() => setDialog({ kind: 'signin' })}
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog === 'cook' && (
+      {dialog?.kind === 'photo' && (
+        <PhotoViewer
+          photo={dialog.photo}
+          onRead={readSavedPhoto}
+          onDelete={async (photo) => {
+            await photoStore.remove(photo.path);
+            showToast('Photo deleted');
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'cook' && (
         <CookDialog
           token={token}
           groceries={groceries}
-          onSignIn={() => setDialog('signin')}
+          onSignIn={() => setDialog({ kind: 'signin' })}
           onCooked={(m) => {
             setDialog(null);
             setAiMatch(m);
@@ -274,7 +311,7 @@ export default function App() {
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog === 'signin' && <SignInDialog onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'signin' && <SignInDialog onClose={() => setDialog(null)} />}
     </div>
   );
 }

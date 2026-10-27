@@ -1,8 +1,9 @@
 """
-Uploaded grocery lists and receipts (PDF or plain text) -> text for the AI parser.
+Uploaded grocery lists, receipts and photos (PDF, plain text or an image) -> AI parser input.
 
 PDFs with a text layer are read locally with pypdf. A PDF with no extractable text (a scan or a
-photo saved as PDF) comes back with `text == ""` and the caller can hand the raw bytes to Claude.
+photo saved as PDF) and every image come back with `text == ""`, and the caller hands the raw
+bytes to Claude.
 """
 
 import codecs
@@ -25,6 +26,17 @@ MIN_CHARS_PER_PAGE = 20
 TEXT_TYPES = {"text/plain", "text/csv", "text/markdown"}
 PDF_TYPES = {"application/pdf", "application/x-pdf"}
 TEXT_SUFFIXES = {".txt", ".csv", ".md"}
+# Image formats Claude reads, by their leading bytes. WebP is "RIFF<size>WEBP".
+IMAGE_SIGNATURES = {
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"GIF87a": "image/gif",
+    b"GIF89a": "image/gif",
+}
+# Phone formats Claude can't read; the web app converts these to JPEG before uploading.
+UNREADABLE_IMAGE_SUFFIXES = {".heic", ".heif", ".avif"}
+
+Kind = Literal["pdf", "text", "image"]
 
 
 class DocumentError(Exception):
@@ -38,23 +50,44 @@ class DocumentError(Exception):
 
 @dataclass
 class ExtractedDocument:
-    kind: Literal["pdf", "text"]
+    kind: Kind
     text: str
     pages: int
     truncated: bool
+    # Set for images: the media type to send to Claude.
+    media_type: str | None = None
 
 
-def detect_kind(filename: str, content_type: str | None, data: bytes) -> Literal["pdf", "text"]:
-    """Decide by content first (PDF magic bytes), then by declared type and file extension."""
+def image_media_type(data: bytes) -> str | None:
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    for signature, media_type in IMAGE_SIGNATURES.items():
+        if data.startswith(signature):
+            return media_type
+    return None
+
+
+def detect_kind(filename: str, content_type: str | None, data: bytes) -> Kind:
+    """Decide by content first (PDF and image magic bytes), then by declared type and extension."""
     if data.startswith(b"%PDF-"):
         return "pdf"
+    if image_media_type(data):
+        return "image"
     suffix = PurePath(filename or "").suffix.lower()
-    if suffix == ".pdf" or (content_type or "").lower() in PDF_TYPES:
+    ctype = (content_type or "").lower()
+    if suffix == ".pdf" or ctype in PDF_TYPES:
         raise DocumentError("That file isn't a valid PDF")
-    if suffix in TEXT_SUFFIXES or (content_type or "").lower() in TEXT_TYPES:
+    if suffix in UNREADABLE_IMAGE_SUFFIXES or ctype in {"image/heic", "image/heif", "image/avif"}:
+        raise DocumentError(
+            "That photo format isn't supported; use a JPEG or PNG",
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+    if ctype.startswith("image/"):
+        raise DocumentError("That file isn't a valid image")
+    if suffix in TEXT_SUFFIXES or ctype in TEXT_TYPES:
         return "text"
     raise DocumentError(
-        "Unsupported file type; upload a PDF or a .txt file",
+        "Unsupported file type; upload a photo, a PDF or a .txt file",
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
     )
 
@@ -109,6 +142,10 @@ def extract_document(filename: str, content_type: str | None, data: bytes) -> Ex
         )
 
     kind = detect_kind(filename, content_type, data)
+    if kind == "image":
+        return ExtractedDocument(
+            kind="image", text="", pages=1, truncated=False, media_type=image_media_type(data)
+        )
     if kind == "text":
         text, truncated = _truncate(_decode_text(data))
         if not text:

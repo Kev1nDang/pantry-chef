@@ -15,7 +15,13 @@ from app.schemas import (
     ParseRequest,
     ParseResponse,
 )
-from app.services.ai import AIQuotaDep, AnthropicDep, parse_grocery_pdf, parse_grocery_text
+from app.services.ai import (
+    AIQuotaDep,
+    AnthropicDep,
+    parse_grocery_image,
+    parse_grocery_pdf,
+    parse_grocery_text,
+)
 from app.services.documents import MAX_FILE_BYTES, extract_document
 
 router = APIRouter(prefix="/api/pantry", tags=["pantry"])
@@ -54,7 +60,9 @@ def parse_pantry_text(
 
 @router.post("/parse-file", response_model=ParseFileResponse)
 def parse_pantry_file(
-    file: Annotated[UploadFile, File(description="A PDF or plain-text grocery list or receipt")],
+    file: Annotated[
+        UploadFile, File(description="A photo, PDF or plain-text grocery list or receipt")
+    ],
     _user_id: CurrentUserId,
     client: AnthropicDep,
     _quota: AIQuotaDep,
@@ -62,15 +70,19 @@ def parse_pantry_file(
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """
-    Upload a grocery list or receipt (PDF or .txt) and get items to review (not saved).
-    PDFs with a text layer are read locally; scanned PDFs are read by Claude page by page.
+    Upload a grocery list, receipt or photo of groceries (JPEG/PNG/WebP/GIF, PDF or .txt) and
+    get items to review (not saved). PDFs with a text layer are read locally; scanned PDFs and
+    photos are read by Claude.
     """
     data = file.file.read(MAX_FILE_BYTES + 1)
     name = file.filename or "upload"
     doc = extract_document(name, file.content_type, data)
     known = _known_names(session)
 
-    if doc.text:
+    if doc.kind == "image":
+        items = parse_grocery_image(client, settings, data, doc.media_type, known)
+        method = "photo"
+    elif doc.text:
         items = parse_grocery_text(client, settings, doc.text, known)
         method = "text"
     else:

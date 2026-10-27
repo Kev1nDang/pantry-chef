@@ -17,6 +17,10 @@ export function unitLabel(unit: Unit, amount?: number): string {
   return amount === 1 ? singular : plural;
 }
 
+/** e.g. "Oct 26, 2026, 3:04 PM", in the viewer's locale */
+export const formatDateTime = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 export function formatAmount(amount: number, unit: Unit): string {
   const n = Number.isInteger(amount) ? amount : Number(amount.toFixed(2));
   return unit === 'pcs' ? `${n}` : `${n} ${unitLabel(unit, n)}`;

@@ -93,10 +93,11 @@ class ParseResponse(ApiModel):
 
 class ParseFileResponse(ParseResponse):
     file_name: str
-    kind: Literal["pdf", "text"]
+    kind: Literal["pdf", "text", "image"]
     pages: int
-    # "text": read from the file's text; "scan": a PDF with no text layer, read by Claude.
-    method: Literal["text", "scan"]
+    # "text": read from the file's text; "scan": a PDF with no text layer, read by Claude;
+    # "photo": an image, read by Claude.
+    method: Literal["text", "scan", "photo"]
     # The extracted text was longer than the parser accepts and was cut off.
     truncated: bool
 

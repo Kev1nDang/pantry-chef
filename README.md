@@ -36,7 +36,9 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 - **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
 - **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
 - **AI features (Claude, signed-in users):**
-  - **Paste a list:** paste a shopping list or receipt; AI turns it into items you review and edit before adding.
+  - **Snap groceries:** on a phone, the camera button opens the rear camera. Photograph your fridge, a shelf, a receipt or a handwritten list, and AI turns it into items you review and edit before adding. Photos are shrunk in the browser first, so they upload quickly over mobile data.
+  - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
+  - **Upload or paste:** a PDF, a text file, or pasted text works the same way.
   - **Cook something from my pantry:** AI writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
 - **Responsive and dark-mode aware.**
 
@@ -105,6 +107,9 @@ While both servers are running, the Vite dev server forwards `/api/*` to `localh
 | GET    | `/api/pantry`       | ✓    | The signed-in user's groceries    |
 | PUT    | `/api/pantry`       | ✓    | Replace the user's grocery list   |
 | POST   | `/api/pantry/parse` | ✓ AI | Body `{text}` → parsed items to review (nothing is saved) |
+| POST   | `/api/pantry/parse-file` | ✓ AI | Multipart `file`: a photo (JPEG/PNG/WebP/GIF), PDF or text file, up to 5 MB → parsed items to review |
+
+Saved photos don't go through the API: the web app uploads them straight to the private `pantry-photos` Storage bucket with the user's session, and row level security keeps each user to their own `<user id>/` folder ([migration](supabase/migrations/20261026000000_pantry_photos.sql)).
 
 Authenticated routes expect a Supabase access token in the `Authorization: Bearer <jwt>` header. JSON uses camelCase, matching `src/types.ts`.
 
@@ -125,11 +130,12 @@ backend/
 │   └── services/
 │       ├── matching.py     # Recipe scoring/ranking
 │       ├── units.py        # Unit conversion
-│       ├── ai.py           # All Claude calls: list parsing, recipe generation
+│       ├── ai.py           # All Claude calls: list/photo parsing, recipe generation
+│       ├── documents.py    # Upload type detection, PDF/text extraction
 │       └── ratelimit.py    # Per-user limit for AI routes
 └── tests/                  # pytest; fakes for the DB session and Anthropic client
 supabase/
-├── migrations/             # SQL schema (source of truth) + row level security
+├── migrations/             # SQL schema (source of truth), row level security, photo bucket
 └── seed.sql                # Seed recipes
 src/
 ├── App.tsx                 # App shell: navigation, recipe matching requests, dialogs, toasts
@@ -142,7 +148,8 @@ src/
 │   ├── StatTiles.tsx       # Count-up stat widgets
 │   ├── GroceryForm.tsx     # Quick-add bar: name / amount / unit
 │   ├── GroceryList.tsx     # Editable grocery list with steppers
-│   ├── PasteListDialog.tsx # AI: paste a list → review → add
+│   ├── AddWithAIDialog.tsx # AI: photo / file / pasted text → review → add
+│   ├── PhotoViewer.tsx     # A saved photo: read it again or delete it
 │   ├── CookDialog.tsx      # AI: generate a recipe from the pantry
 │   ├── RecipeCard.tsx      # Ranked result card with coverage meter
 │   ├── RecipeDetail.tsx    # Ingredient status, servings scaling, steps, "I cooked this"
@@ -154,6 +161,8 @@ src/
 │   ├── supabase.ts         # Supabase client (null when not configured)
 │   ├── useSession.ts       # Current Supabase session
 │   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry
+│   ├── usePhotos.ts        # Saved photos in Supabase Storage
+│   ├── image.ts            # Shrink and re-encode photos before upload
 │   ├── useShoppingList.ts  # Shopping list in localStorage
 │   ├── useToast.ts         # Single toast with auto-dismiss
 │   ├── foodEmoji.ts        # Grocery name → emoji

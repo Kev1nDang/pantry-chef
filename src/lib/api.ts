@@ -14,7 +14,10 @@ export class ApiError extends Error {
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT';
+  /** sent as JSON */
   body?: unknown;
+  /** sent as multipart/form-data instead of `body` */
+  form?: FormData;
   token?: string;
   signal?: AbortSignal;
 }
@@ -29,8 +32,12 @@ function errorMessage(data: unknown, fallback: string): string {
   return fallback;
 }
 
-async function request<T>(path: string, { method = 'GET', body, token, signal }: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  { method = 'GET', body, form, token, signal }: RequestOptions = {},
+): Promise<T> {
   const headers: Record<string, string> = {};
+  // The browser sets the multipart Content-Type (with its boundary) for FormData itself.
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -39,7 +46,7 @@ async function request<T>(path: string, { method = 'GET', body, token, signal }:
     res = await fetch(`${BASE}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
       signal,
     });
   } catch (err) {
@@ -87,6 +94,24 @@ export async function parseGroceryText(token: string, text: string): Promise<Par
     token,
   });
   return res.items;
+}
+
+export interface ParsedFile {
+  items: ParsedGrocery[];
+  fileName: string;
+  kind: 'pdf' | 'text' | 'image';
+  pages: number;
+  /** text: read from the file's text; scan: a PDF without text, read by AI; photo: an image, read by AI */
+  method: 'text' | 'scan' | 'photo';
+  /** the file's text was longer than the parser accepts and was cut off */
+  truncated: boolean;
+}
+
+/** AI: turn an uploaded photo, PDF or text file into items to review. Nothing is saved. */
+export function parseGroceryFile(token: string, file: Blob, name: string) {
+  const form = new FormData();
+  form.append('file', file, name);
+  return request<ParsedFile>('/pantry/parse-file', { method: 'POST', form, token });
 }
 
 export interface GenerateOptions {
