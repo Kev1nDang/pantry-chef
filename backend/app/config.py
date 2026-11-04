@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     # Per-user cap on AI requests per rolling minute. 0 disables the limit.
     ai_rate_limit_per_minute: int = 10
 
+    # Local grocery detection (POST /api/pantry/detect). Needs requirements-vision.txt; the
+    # ONNX model is downloaded from the Hugging Face Hub (cached under HF_HOME) on first use.
+    vision_enabled: bool = True
+    vision_model_repo: str = "Xenova/owlvit-base-patch32"
+    vision_model_file: str = "onnx/model_quantized.onnx"
+    # Load the model in the background at startup so the first photo isn't slow.
+    vision_warmup: bool = True
+
     @property
     def sqlalchemy_url(self) -> str:
         """Supabase hands out `postgresql://` URIs; SQLAlchemy needs the psycopg 3 driver named."""

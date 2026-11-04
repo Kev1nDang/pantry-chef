@@ -91,6 +91,22 @@ class ParseResponse(ApiModel):
     items: list[ParsedItem]
 
 
+class DetectedBox(ApiModel):
+    name: str
+    score: float
+    # Pixel box in the uploaded photo: [left, top, width, height].
+    box: tuple[int, int, int, int]
+
+
+class DetectResponse(ParseResponse):
+    """Groceries counted in a photo by the local detector (amounts are counts, in pcs)."""
+
+    detections: list[DetectedBox]
+    width: int
+    height: int
+    seconds: float
+
+
 class ParseFileResponse(ParseResponse):
     file_name: str
     kind: Literal["pdf", "text", "image"]

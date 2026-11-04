@@ -1,0 +1,8 @@
+# Optional: local grocery detection (POST /api/pantry/detect), no LLM involved.
+# Without these the endpoint answers 503 and the web app reads photos with Claude instead.
+# The model itself (~155 MB) is downloaded from the Hugging Face Hub on first use.
+numpy>=2
+opencv-python-headless>=4.10
+onnxruntime>=1.19
+tokenizers>=0.20
+huggingface_hub>=0.25

@@ -67,6 +67,24 @@ def image_media_type(data: bytes) -> str | None:
     return None
 
 
+def require_image(data: bytes) -> str:
+    """Validate an upload that must be a photo; returns its media type."""
+    if not data:
+        raise DocumentError("That file is empty")
+    if len(data) > MAX_FILE_BYTES:
+        raise DocumentError(
+            f"Photos can be at most {MAX_FILE_BYTES // (1024 * 1024)} MB",
+            status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    media_type = image_media_type(data)
+    if media_type is None:
+        raise DocumentError(
+            "That isn't a photo; upload a JPEG, PNG, WebP or GIF",
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
+    return media_type
+
+
 def detect_kind(filename: str, content_type: str | None, data: bytes) -> Kind:
     """Decide by content first (PDF and image magic bytes), then by declared type and extension."""
     if data.startswith(b"%PDF-"):
