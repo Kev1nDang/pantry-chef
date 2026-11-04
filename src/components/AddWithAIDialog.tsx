@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
+  ApiError,
+  detectGroceries,
   messageOf,
   parseGroceryFile,
   parseGroceryText,
+  type DetectedPhoto,
   type NewGrocery,
   type ParsedGrocery,
 } from '../lib/api';
@@ -43,6 +46,16 @@ type SaveState = 'saving' | 'saved' | 'failed' | null;
 
 const FILE_ACCEPT = 'image/*,application/pdf,.pdf,text/plain,.txt,.csv,.md';
 
+/** Count the groceries in a photo locally; null when the server has no detector (503). */
+async function detectOrNull(token: string, photo: Blob, name: string): Promise<DetectedPhoto | null> {
+  try {
+    return await detectGroceries(token, photo, name);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 503) return null;
+    throw err;
+  }
+}
+
 const isValid = (r: Row) => r.name.trim() !== '' && Number(r.amount) > 0;
 
 const toRows = (items: ParsedGrocery[]): Row[] =>
@@ -57,6 +70,8 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   /** object URL of the photo being read, shown while reading and while reviewing */
   const [preview, setPreview] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>(null);
+  /** what the detector found in the photo, drawn over the preview */
+  const [found, setFound] = useState<DetectedPhoto | null>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const started = useRef(false);
@@ -69,6 +84,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
     setError(null);
     setNote(null);
     setPreview(null);
+    setFound(null);
     try {
       setRows(toRows(await parseGroceryText(token, text)));
     } catch (err) {
@@ -85,6 +101,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
     setNote(null);
     setSaveState(null);
     setPreview(null);
+    setFound(null);
     try {
       let upload = file;
       let uploadName = name;
@@ -100,6 +117,15 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
             () => setSaveState('failed'),
           );
         }
+        // Groceries in the photo are counted by the local detector first. A receipt or a list
+        // has nothing for it to count, so those (and servers without it) get their text read.
+        const detected = await detectOrNull(token, upload, uploadName);
+        if (detected && detected.items.length > 0) {
+          setFound(detected);
+          setRows(toRows(detected.items));
+          return;
+        }
+        if (detected) setNote('No loose groceries spotted, so the text in the photo was read instead.');
       }
       const res = await parseGroceryFile(token, upload, uploadName);
       if (res.truncated) setNote('That file was long, so only the first part was read.');
@@ -133,6 +159,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   function back() {
     setRows(null);
     setPreview(null);
+    setFound(null);
     setSaveState(null);
     setNote(null);
   }
@@ -145,12 +172,33 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
     onClose();
   }
 
+  // Label size in photo pixels, so labels stay readable whatever the photo's resolution.
+  const labelSize = found ? Math.max(found.width, found.height) * 0.03 : 0;
   const photoPanel = preview && (
     <figure className="photo-preview">
-      <img src={preview} alt="The photo being read" />
+      <div className="photo-stage">
+        <img src={preview} alt="The photo being read" />
+        {found && (
+          <svg
+            className="photo-boxes"
+            viewBox={`0 0 ${found.width} ${found.height}`}
+            preserveAspectRatio="xMidYMid meet" // letterboxes exactly like the img's object-fit: contain
+            aria-hidden
+          >
+            {found.detections.map(({ name, box: [x, y, w, h] }, i) => (
+              <g key={i}>
+                <rect x={x} y={y} width={w} height={h} rx={labelSize / 3} />
+                <text x={x + labelSize / 3} y={y + labelSize * 1.05} fontSize={labelSize}>
+                  {name}
+                </text>
+              </g>
+            ))}
+          </svg>
+        )}
+      </div>
       {busy && (
         <figcaption className="photo-reading">
-          <span className="spinner" aria-hidden /> Reading your photo…
+          <span className="spinner" aria-hidden /> Spotting groceries…
         </figcaption>
       )}
     </figure>
@@ -242,6 +290,13 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                 </>
               )}
               {saveState === 'failed' && 'Couldn’t save the photo, but its items are below.'}
+            </p>
+          )}
+          {found && (
+            <p className="banner detector-note">
+              <Icon name="check" size={14} /> Counted {found.detections.length} item
+              {found.detections.length === 1 ? '' : 's'} in the photo. Amounts are counts, so adjust
+              them for things you buy by weight.
             </p>
           )}
           {note && <p className="banner">{note}</p>}

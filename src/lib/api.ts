@@ -114,6 +114,32 @@ export function parseGroceryFile(token: string, file: Blob, name: string) {
   return request<ParsedFile>('/pantry/parse-file', { method: 'POST', form, token });
 }
 
+export interface DetectedBox {
+  name: string;
+  score: number;
+  /** pixel box in the uploaded photo: left, top, width, height */
+  box: [number, number, number, number];
+}
+
+export interface DetectedPhoto {
+  /** counted groceries (unit pcs) */
+  items: ParsedGrocery[];
+  detections: DetectedBox[];
+  width: number;
+  height: number;
+  seconds: number;
+}
+
+/**
+ * Count the groceries in a photo with the server's local detector (Hugging Face OWL-ViT run with
+ * ONNX Runtime + OpenCV): free and fast, no LLM. Throws ApiError 503 when the server doesn't have it.
+ */
+export function detectGroceries(token: string, photo: Blob, name: string) {
+  const form = new FormData();
+  form.append('file', photo, name);
+  return request<DetectedPhoto>('/pantry/detect', { method: 'POST', form, token });
+}
+
 export interface GenerateOptions {
   dietary: string[];
   maxMinutes?: number;
