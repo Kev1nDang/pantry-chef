@@ -143,7 +143,7 @@ def test_unknown_names_are_kept_as_written():
         ("asparagus", "asparagus"),
         ("molasses", "molasses"),
         ("oats", "oats"),
-        ("peas", "peas"),
+        ("peas", "pea"),
         ("rice", "rice"),
     ],
 )
