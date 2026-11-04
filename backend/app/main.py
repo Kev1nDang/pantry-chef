@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api import account, health, pantry, recipes
 from app.config import get_settings
@@ -44,6 +44,12 @@ def ai_error_handler(_request: Request, exc: AIError) -> JSONResponse:
 @app.exception_handler(DocumentError)
 def document_error_handler(_request: Request, exc: DocumentError) -> JSONResponse:
     return JSONResponse({"detail": exc.message}, status_code=exc.status_code)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    # The API has no page of its own; send visitors (e.g. a Space's App tab) to the docs.
+    return RedirectResponse("/docs")
 
 
 app.include_router(health.router)

@@ -7,8 +7,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      // Forward API calls to the FastAPI dev server (backend/).
-      proxy: { '/api': env.API_PROXY_TARGET || 'http://localhost:8000' },
+      // Forward API calls to the FastAPI dev server (backend/), or to a deployed API such as the
+      // Hugging Face Space. changeOrigin sends the target's Host header, which Spaces route on.
+      proxy: { '/api': { target: env.API_PROXY_TARGET || 'http://localhost:8000', changeOrigin: true } },
     },
   }
 })

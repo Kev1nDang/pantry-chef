@@ -55,6 +55,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 | AI       | Claude API via the `anthropic` Python SDK (server-side only) |
 | Vision   | [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble) from the Hugging Face Hub, run with ONNX Runtime; OpenCV + NumPy for image processing |
 | CI       | GitHub Actions: lint + build, ruff + pytest |
+| Hosting  | API: Hugging Face Docker Space ([how](#deploy-the-api-to-a-hugging-face-space)) |
 
 ## Getting started
 
@@ -172,6 +173,24 @@ src/
 ├── types.ts                # Shared domain types
 └── index.css               # Styles and theme tokens
 ```
+
+## Deploy the API to a Hugging Face Space
+
+The API runs as a free [Hugging Face Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker). The free CPU tier has 2 vCPUs and 16 GB of RAM, and a photo scan needs about 1.75 GB. [`backend/Dockerfile`](backend/Dockerfile) installs the API and bakes the OWLv2 model into the image, so a Space waking from sleep doesn't download it again.
+
+1. Sign in once with a Hugging Face **write** token: `hf auth login`.
+2. From `backend/`, run `python scripts/deploy_space.py`. It creates `<your account>/pantry-chef-api` if it doesn't exist. Then it uploads the Dockerfile, the requirements files, `app/` and the Space page ([`backend/space/README.md`](backend/space/README.md)); it never uploads `.env` or the tests. It prints the API URL, `https://<account>-pantry-chef-api.hf.space`.
+3. Configure the Space under **Settings → Variables and secrets**:
+   - `DATABASE_URL` and `ANTHROPIC_API_KEY` as secrets;
+   - `SUPABASE_URL` as a variable;
+   - `CORS_ORIGINS`, the web app's origins as a JSON list, as a variable.
+
+   `--secrets-from-env` copies the first three from `backend/.env`, and `--cors-origin https://your-app.vercel.app` (repeatable) sets the last.
+4. Point the web app at the Space:
+   - For local development, set `API_PROXY_TARGET=https://<account>-pantry-chef-api.hf.space` in `.env.local`. The Vite dev server then forwards `/api` to the Space, so no CORS setup is needed.
+   - For a production build, set `VITE_API_URL` to the same URL.
+
+The first build takes a few minutes. On the free tier, the Space sleeps after 48 hours without requests, and the first request after that waits for it to start.
 
 ## How photo detection works
 
