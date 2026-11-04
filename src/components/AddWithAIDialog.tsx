@@ -42,8 +42,6 @@ interface Row {
   unit: Unit;
   /** the detector's name for this row, to find its boxes even after the user renames it */
   detected?: string;
-  /** the amount is a typical package size: ask the user to check it */
-  estimated?: boolean;
   /** the detector wasn't confident: ask the user to check what it is */
   unsure?: boolean;
 }
@@ -62,11 +60,7 @@ const toRows = (items: (ParsedGrocery | DetectedGrocery)[]): Row[] =>
     name: it.name,
     amount: String(it.amount),
     unit: it.unit,
-    ...('confidence' in it && {
-      detected: it.name,
-      estimated: it.estimated,
-      unsure: it.confidence < UNSURE_BELOW,
-    }),
+    ...('confidence' in it && { detected: it.name, unsure: it.confidence < UNSURE_BELOW }),
   }));
 
 export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, onClose }: Props) {
@@ -189,7 +183,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   // Label size in photo pixels, so labels stay readable whatever the photo's resolution.
   const labelSize = found ? Math.max(found.width, found.height) * 0.03 : 0;
   const highlighted = rows?.find((r) => r.key === activeKey)?.detected ?? null;
-  const flagged = rows?.some((r) => r.estimated || r.unsure) ?? false;
+  const unsure = rows?.some((r) => r.unsure) ?? false;
   const photoPanel = preview && (
     <figure className="photo-preview">
       <div className="photo-stage">
@@ -225,8 +219,8 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
       <header>
         <h2 id="ai-add-title">Add with AI</h2>
         <p className="recipe-meta">
-          Snap your fridge, a shelf or your shopping bag, and the groceries in it are counted for you to
-          review before adding. Or paste a list.
+          Snap your fridge, a shelf or your shopping bag, and the food in it is counted for you to review
+          before adding. Or paste a list.
         </p>
       </header>
 
@@ -301,9 +295,9 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
             <p className="banner detector-note">
               <Icon name="check" size={14} />
               <span>
-                Found {rows.length} grocer{rows.length === 1 ? 'y' : 'ies'} in the photo.
-                {flagged && ' Check the marked rows: package sizes are typical sizes, not read from the photo.'}{' '}
-                Tap a row to see its boxes.
+                Counted {rows.length} food{rows.length === 1 ? '' : 's'} in the photo, in pieces: change the
+                unit for things you measure by weight or volume.
+                {unsure && ' Check the rows marked “Not sure”.'} Tap a row to see what was counted.
               </span>
             </p>
           )}
@@ -340,11 +334,9 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                     step="any"
                     inputMode="decimal"
                     value={r.amount}
-                    // Editing an estimated amount counts as checking it.
-                    onChange={(e) => update(r.key, { amount: e.target.value, estimated: false })}
+                    onChange={(e) => update(r.key, { amount: e.target.value })}
                     aria-label={`Amount of ${r.name}`}
                     aria-invalid={!(Number(r.amount) > 0)}
-                    className={r.estimated ? 'needs-check' : undefined}
                   />
                   <select
                     value={r.unit}
@@ -357,10 +349,9 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                       </option>
                     ))}
                   </select>
-                  {(r.estimated || r.unsure) && (
+                  {r.unsure && (
                     <span className="row-flags">
-                      {r.estimated && <span className="flag flag-amount">Check amount</span>}
-                      {r.unsure && <span className="flag flag-unsure">Not sure</span>}
+                      <span className="flag flag-unsure">Not sure</span>
                     </span>
                   )}
                 </li>

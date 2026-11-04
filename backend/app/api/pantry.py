@@ -65,9 +65,9 @@ def detect_pantry_photo(
     session: OptionalSessionDep,
 ):
     """
-    Find the groceries in a photo with the local detector (OWLv2 via ONNX Runtime, no LLM) and
-    return them as items to review (not saved), with the boxes it found. Loose items are counted
-    ("6 egg"); packages get a typical size marked `estimated` ("milk carton" -> 1 l).
+    Count the foods in a photo with the local detector (OWLv2 via ONNX Runtime, no LLM) and
+    return them as items to review (not saved), with the boxes behind each count. Every amount
+    is a count in pcs ("6 egg", "2 milk" for two cartons); the user fixes units in the app.
     """
     data = file.file.read(MAX_FILE_BYTES + 1)
     require_image(data)
@@ -80,22 +80,16 @@ def detect_pantry_photo(
     known = _known_names(session)
     names = {d.name: canonical_name(d.name, known) for d in result.detections}
 
-    # Totals per (name, unit); two detector names can map onto one recipe ingredient.
-    items: dict[tuple[str, str], DetectedItem] = {}
-    for t in result.totals():
-        name = names[t.name]
-        if (name, t.unit) in items:
-            prev = items[(name, t.unit)]
-            prev.amount = round(prev.amount + t.amount, 2)
-            prev.estimated = prev.estimated or t.estimated
-            prev.confidence = max(prev.confidence, round(t.confidence, 3))
+    # Two detector names can map onto one recipe ingredient; add their counts up.
+    items: dict[str, DetectedItem] = {}
+    for c in result.counts():
+        name = names[c.name]
+        if name in items:
+            items[name].amount += c.count
+            items[name].confidence = max(items[name].confidence, round(c.confidence, 3))
         else:
-            items[(name, t.unit)] = DetectedItem(
-                name=name,
-                amount=round(t.amount, 2),
-                unit=t.unit,
-                estimated=t.estimated,
-                confidence=round(t.confidence, 3),
+            items[name] = DetectedItem(
+                name=name, amount=c.count, unit="pcs", confidence=round(c.confidence, 3)
             )
 
     return DetectResponse(

@@ -1,5 +1,5 @@
 """
-Local grocery detection: photo of groceries -> pantry items with amounts, with no LLM call.
+Local grocery counting: photo of groceries -> how many of each food it shows, with no LLM call.
 
 The model is OWLv2 (google/owlv2-base-patch16-ensemble, Apache-2.0), an open-vocabulary detector:
 it boxes whatever the text queries describe, so the grocery vocabulary below is just data. The
@@ -9,9 +9,9 @@ suppression; ONNX Runtime runs the model on the CPU (~6-7 s per photo). The olde
 weaker OWL-ViT (Xenova/owlvit-base-patch32, ~0.5 s) works too via VISION_MODEL_REPO: preprocessing
 and the score threshold come from the repo's preprocessor_config.json.
 
-What it can and can't do: it finds and counts visible items ("6 eggs", "3 bananas"). It can't weigh
-anything, so packages get a typical size ("milk carton" -> 1 l) marked `estimated` for the user to
-check, and it doesn't read text (labels, receipts). Accuracy on real photos: scripts/eval_vision.py.
+What it does: it counts the visible food, one box per item ("6 egg", "3 banana", "2 milk" for two
+cartons). Every amount is a count in pcs: it can't weigh anything or read labels, so the user fixes
+units and amounts in the app's review step. Accuracy on real photos: scripts/eval_vision.py.
 
 The heavy dependencies (numpy, opencv, onnxruntime, tokenizers, huggingface_hub) are optional;
 without them `available()` is False and the detect endpoint answers 503.
@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import Depends, HTTPException, status
 
 from app.config import Settings, get_settings
-from app.schemas import Unit
 
 if TYPE_CHECKING:
     import numpy as np
@@ -51,100 +50,80 @@ GROUP_MEMBER_AREA = 0.5  # ...where "smaller" means at most this fraction of its
 MAX_ITEMS = 100
 
 
-@dataclass(frozen=True)
-class Grocery:
-    """What one detected box adds to the pantry."""
-
-    name: str
-    amount: float = 1
-    unit: Unit = "pcs"
-    # The amount is a typical package size, not something the photo shows; the app asks the user
-    # to check it.
-    estimated: bool = False
-
-
-def _pack(name: str, amount: float, unit: Unit) -> Grocery:
-    return Grocery(name, amount, unit, estimated=True)
-
-
-# Text query -> what a box matching it adds. Several phrasings can point at one name; the name is
-# what the pantry stores, so it should match the recipe ingredient names where possible
-# (singular, lowercase). Loose items count as 1 pcs each; packages get a typical size.
-VOCABULARY: dict[str, Grocery] = {
-    # Produce (counted)
-    **{
-        q: Grocery(name)
-        for q, name in {
-            "apple": "apple",
-            "banana": "banana",
-            "orange": "orange",
-            "tangerine": "orange",
-            "lemon": "lemon",
-            "lime": "lime",
-            "avocado": "avocado",
-            "tomato": "tomato",
-            "potato": "potato",
-            "onion": "onion",
-            "red onion": "onion",
-            "garlic bulb": "garlic",
-            "carrot": "carrot",
-            "broccoli": "broccoli",
-            "green bell pepper": "bell pepper",
-            "red bell pepper": "bell pepper",
-            "cucumber": "cucumber",
-            "zucchini": "zucchini",
-            "eggplant": "eggplant",
-            "head of cabbage": "cabbage",
-            "head of lettuce": "lettuce",
-            "mushroom": "mushroom",
-            "corn cob": "corn",
-            "chili pepper": "chili pepper",
-            "red chili pepper": "chili pepper",
-            "yellow chili pepper": "chili pepper",
-            "ginger root": "ginger",
-            "strawberry": "strawberry",
-            "pineapple": "pineapple",
-            "watermelon": "watermelon",
-            "kiwi fruit": "kiwi",
-            "mango": "mango",
-            "egg": "egg",
-            "loaf of bread": "bread",
-            "yogurt cup": "yogurt",
-            "cup of yogurt": "yogurt",
-            "jar of mustard": "mustard",
-            "jar of jam": "jam",
-            "bottle of salad dressing": "salad dressing",
-            "bottle of hot sauce": "hot sauce",
-            "cereal box": "cereal",
-            "jar of peanut butter": "peanut butter",
-            "jar of honey": "honey",
-            "ketchup bottle": "ketchup",
-            "soda can": "soda",
-            "bottle of water": "water",
-        }.items()
-    },
-    # Groups and packages (typical sizes, flagged for the user to check)
-    "bunch of bananas": _pack("banana", 5, "pcs"),
-    "bunch of grapes": _pack("grapes", 500, "g"),
-    "egg carton": _pack("egg", 12, "pcs"),
-    "milk carton": _pack("milk", 1, "l"),
-    "bottle of milk": _pack("milk", 1, "l"),
-    "plastic gallon jug of milk": _pack("milk", 3.785, "l"),
-    "block of cheese": _pack("cheese", 200, "g"),
-    "stick of butter": _pack("butter", 113, "g"),
-    "bag of rice": _pack("rice", 1, "kg"),
-    "box of pasta": _pack("pasta", 500, "g"),
-    "bag of flour": _pack("flour", 1, "kg"),
-    "can of beans": _pack("canned beans", 400, "g"),
-    "can of tomatoes": _pack("canned tomatoes", 400, "g"),
-    "can of soup": _pack("canned soup", 400, "g"),
-    "bottle of olive oil": _pack("olive oil", 500, "ml"),
-    "bottle of cooking oil": _pack("vegetable oil", 1, "l"),
-    "bottle of soy sauce": _pack("soy sauce", 250, "ml"),
-    "bottle of juice": _pack("juice", 1, "l"),
-    "raw chicken": _pack("chicken", 500, "g"),
-    "raw steak": _pack("beef", 300, "g"),
-    "raw fish fillet": _pack("fish", 300, "g"),
+# Text query -> pantry name. Several phrasings can point at one name; the name is what the pantry
+# stores, so it should match the recipe ingredient names where possible (singular, lowercase).
+# Each box counts as one of its name: two milk cartons are "2 milk".
+VOCABULARY: dict[str, str] = {
+    # Produce
+    "apple": "apple",
+    "banana": "banana",
+    "orange": "orange",
+    "tangerine": "orange",
+    "lemon": "lemon",
+    "lime": "lime",
+    "avocado": "avocado",
+    "tomato": "tomato",
+    "potato": "potato",
+    "onion": "onion",
+    "red onion": "onion",
+    "garlic bulb": "garlic",
+    "carrot": "carrot",
+    "broccoli": "broccoli",
+    "green bell pepper": "bell pepper",
+    "red bell pepper": "bell pepper",
+    "cucumber": "cucumber",
+    "zucchini": "zucchini",
+    "eggplant": "eggplant",
+    "head of cabbage": "cabbage",
+    "head of lettuce": "lettuce",
+    "mushroom": "mushroom",
+    "corn cob": "corn",
+    "chili pepper": "chili pepper",
+    "red chili pepper": "chili pepper",
+    "yellow chili pepper": "chili pepper",
+    "ginger root": "ginger",
+    "strawberry": "strawberry",
+    "bunch of grapes": "grapes",
+    "pineapple": "pineapple",
+    "watermelon": "watermelon",
+    "kiwi fruit": "kiwi",
+    "mango": "mango",
+    # Dairy and eggs
+    "egg": "egg",
+    "milk carton": "milk",
+    "bottle of milk": "milk",
+    "plastic gallon jug of milk": "milk",
+    "block of cheese": "cheese",
+    "stick of butter": "butter",
+    "yogurt cup": "yogurt",
+    "cup of yogurt": "yogurt",
+    # Pantry staples
+    "loaf of bread": "bread",
+    "bag of rice": "rice",
+    "box of pasta": "pasta",
+    "bag of flour": "flour",
+    "can of beans": "canned beans",
+    "can of tomatoes": "canned tomatoes",
+    "can of soup": "canned soup",
+    "cereal box": "cereal",
+    "jar of peanut butter": "peanut butter",
+    "jar of honey": "honey",
+    "jar of jam": "jam",
+    "jar of mustard": "mustard",
+    "bottle of olive oil": "olive oil",
+    "bottle of cooking oil": "vegetable oil",
+    "bottle of soy sauce": "soy sauce",
+    "bottle of hot sauce": "hot sauce",
+    "bottle of salad dressing": "salad dressing",
+    "ketchup bottle": "ketchup",
+    # Meat and fish
+    "raw chicken": "chicken",
+    "raw steak": "beef",
+    "raw fish fillet": "fish",
+    # Drinks
+    "bottle of juice": "juice",
+    "soda can": "soda",
+    "bottle of water": "water",
 }
 
 PROMPT = "a photo of a {}"
@@ -152,27 +131,20 @@ PROMPT = "a photo of a {}"
 
 @dataclass(frozen=True)
 class Detection:
-    grocery: Grocery
+    name: str
     score: float
     # Pixel box in the original photo: left, top, width, height.
     box: tuple[int, int, int, int]
 
-    @property
-    def name(self) -> str:
-        return self.grocery.name
-
 
 @dataclass(frozen=True)
-class Total:
-    """All the boxes of one grocery added up: "6 eggs", or "2 l milk" from two cartons."""
+class Count:
+    """How many of one food the photo shows."""
 
     name: str
-    amount: float
-    unit: Unit
-    estimated: bool
+    count: int
     # The most confident box's score; low values mean "the model isn't sure this is right".
     confidence: float
-    boxes: int
 
 
 @dataclass(frozen=True)
@@ -182,23 +154,13 @@ class DetectionResult:
     height: int
     seconds: float
 
-    def totals(self) -> list[Total]:
-        """One total per grocery and unit, most boxes first."""
-        groups: dict[tuple[str, str], list[Detection]] = {}
+    def counts(self) -> list[Count]:
+        """One count per food, most first."""
+        scores: dict[str, list[float]] = {}
         for d in self.detections:
-            groups.setdefault((d.name, d.grocery.unit), []).append(d)
-        totals = [
-            Total(
-                name=name,
-                amount=sum(d.grocery.amount for d in group),
-                unit=group[0].grocery.unit,
-                estimated=any(d.grocery.estimated for d in group),
-                confidence=max(d.score for d in group),
-                boxes=len(group),
-            )
-            for (name, _unit), group in groups.items()
-        ]
-        return sorted(totals, key=lambda t: (-t.boxes, -t.confidence))
+            scores.setdefault(d.name, []).append(d.score)
+        counts = [Count(name, len(s), max(s)) for name, s in scores.items()]
+        return sorted(counts, key=lambda c: (-c.count, -c.confidence))
 
 
 class VisionError(Exception):
@@ -334,10 +296,10 @@ class GroceryDetector:
         right = np.clip((cx + bw / 2) * sx, 0, width)
         bottom = np.clip((cy + bh / 2) * sy, 0, height)
         rects = np.stack([left, top, right - left, bottom - top], axis=1)
-        groceries = [VOCABULARY[self._queries[q]] for q in best_query[keep]]
+        names = [VOCABULARY[self._queries[q]] for q in best_query[keep]]
         detections = [
-            Detection(grocery, float(score), tuple(int(round(v)) for v in rect))
-            for grocery, score, rect in zip(groceries, best_score[keep], rects, strict=True)
+            Detection(name, float(score), tuple(int(round(v)) for v in rect))
+            for name, score, rect in zip(names, best_score[keep], rects, strict=True)
         ]
         return DetectionResult(
             detections=_clean(detections),
@@ -368,33 +330,15 @@ def _holds(outer: tuple[int, int, int, int], inner: tuple[int, int, int, int]) -
     return smaller and x <= cx <= x + w and y <= cy <= y + h
 
 
-def _opened_package(pack: Detection, detections: list[Detection]) -> bool:
-    """Whether `pack` is a package whose loose items (same grocery) are visible inside it."""
-    if not pack.grocery.estimated:
-        return False
-    x, y, w, h = pack.box
-    return any(
-        d.name == pack.name
-        and not d.grocery.estimated
-        and d.score >= RELATIVE_THRESHOLD * pack.score
-        and x <= d.box[0] + d.box[2] / 2 <= x + w
-        and y <= d.box[1] + d.box[3] / 2 <= y + h
-        for d in detections
-    )
-
-
 def _clean(detections: list[Detection]) -> list[Detection]:
     """
-    Turn raw per-patch boxes into one box per object:
-    1. drop a package box (egg carton, bunch of bananas) when items of the same grocery are seen
-       inside it: count the eggs in an open carton; a closed one counts as its typical size;
-    2. per grocery, suppress duplicate boxes on the same object;
-    3. across groceries, one label per object (an apple boxed as "apple" and "orange" counts once);
-    4. drop group boxes (the whole shelf, a bowl) that hold several much smaller detections;
-    5. drop stragglers far below the best score for the same grocery.
+    Turn raw per-patch boxes into one box per object, so each box is one item to count:
+    1. per food, suppress duplicate boxes on the same object;
+    2. across foods, one label per object (an apple boxed as "apple" and "orange" counts once);
+    3. drop group boxes (the egg carton, a bunch of bananas) that hold several much smaller
+       detections, so an open carton counts its eggs rather than itself;
+    4. drop stragglers far below the best score for the same food.
     """
-    detections = [d for d in detections if not _opened_package(d, detections)]
-
     by_name: dict[str, list[Detection]] = {}
     for d in detections:
         by_name.setdefault(d.name, []).append(d)

@@ -99,14 +99,14 @@ class DetectedBox(ApiModel):
 
 
 class DetectedItem(ParsedItem):
-    # The amount is a typical package size ("milk carton" -> 1 l), not something the photo shows.
-    estimated: bool
+    """A food counted in a photo: `amount` is how many boxes, always in pcs."""
+
     # The best box's score (0..1); low means the detector isn't sure what this is.
     confidence: float
 
 
 class DetectResponse(ApiModel):
-    """Groceries found in a photo by the local detector, with the boxes behind them."""
+    """Foods counted in a photo by the local detector, with the boxes behind the counts."""
 
     items: list[DetectedItem]
     detections: list[DetectedBox]

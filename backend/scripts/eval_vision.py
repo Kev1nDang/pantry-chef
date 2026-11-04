@@ -67,8 +67,7 @@ def main() -> None:
     for photo in photos:
         result = detector.detect(fetch(photo["url"], args.cache / photo["file"]))
         seconds.append(result.seconds)
-        # Count boxes, not amounts: "1 egg carton" is one thing a person counts, not 12.
-        boxes = {t.name: t.boxes for t in result.totals()}
+        boxes = {c.name: c.count for c in result.counts()}
         p, t, lines = judge(boxes, photo)
         passed, total = passed + p, total + t
         extra = sorted(set(boxes) - set(photo.get("expect", {})) - set(photo.get("present", [])))

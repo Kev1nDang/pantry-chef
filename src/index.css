@@ -530,10 +530,8 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 560px) { .review-list li { grid-template-columns: auto minmax(0, 1fr) 64px 100px; } }
 .review-list li { padding: 4px; margin: -4px; border-radius: 12px; transition: background 0.15s; }
 .review-list li.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.review-list input.needs-check { border-color: var(--close); background: color-mix(in srgb, var(--close) 10%, var(--surface)); }
 .row-flags { grid-column: 2 / -1; display: flex; gap: 6px; margin-top: -2px; }
 .flag { padding: 1px 8px; border-radius: 99px; font-size: 0.72rem; font-weight: 600; }
-.flag-amount { color: var(--close); background: color-mix(in srgb, var(--close) 14%, transparent); }
 .flag-unsure { color: var(--muted); background: var(--surface-2); }
 .add-row { align-self: flex-start; margin-top: -8px; }
 
