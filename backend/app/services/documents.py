@@ -1,42 +1,21 @@
 """
-Uploaded grocery lists, receipts and photos (PDF, plain text or an image) -> AI parser input.
+Upload validation for photos of groceries (POST /api/pantry/detect).
 
-PDFs with a text layer are read locally with pypdf. A PDF with no extractable text (a scan or a
-photo saved as PDF) and every image come back with `text == ""`, and the caller hands the raw
-bytes to Claude.
+Photos are recognized by their leading bytes, not by the name or type the browser sends. The web
+app shrinks every photo to a JPEG before uploading; HEIC/AVIF straight from a phone are refused.
 """
 
-import codecs
-import io
-from dataclasses import dataclass
-from pathlib import PurePath
-from typing import Literal
-
 from fastapi import status
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
-MAX_PDF_PAGES = 20
-# Longer than the paste box allows: a full receipt PDF easily runs past 5000 characters.
-MAX_TEXT_CHARS = 20000
-# Fewer extracted characters than this per page means the PDF is (mostly) scanned images.
-MIN_CHARS_PER_PAGE = 20
 
-TEXT_TYPES = {"text/plain", "text/csv", "text/markdown"}
-PDF_TYPES = {"application/pdf", "application/x-pdf"}
-TEXT_SUFFIXES = {".txt", ".csv", ".md"}
-# Image formats Claude reads, by their leading bytes. WebP is "RIFF<size>WEBP".
+# Image formats the detector reads, by their leading bytes. WebP is "RIFF<size>WEBP".
 IMAGE_SIGNATURES = {
     b"\xff\xd8\xff": "image/jpeg",
     b"\x89PNG\r\n\x1a\n": "image/png",
     b"GIF87a": "image/gif",
     b"GIF89a": "image/gif",
 }
-# Phone formats Claude can't read; the web app converts these to JPEG before uploading.
-UNREADABLE_IMAGE_SUFFIXES = {".heic", ".heif", ".avif"}
-
-Kind = Literal["pdf", "text", "image"]
 
 
 class DocumentError(Exception):
@@ -46,16 +25,6 @@ class DocumentError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
-
-
-@dataclass
-class ExtractedDocument:
-    kind: Kind
-    text: str
-    pages: int
-    truncated: bool
-    # Set for images: the media type to send to Claude.
-    media_type: str | None = None
 
 
 def image_media_type(data: bytes) -> str | None:
@@ -83,95 +52,3 @@ def require_image(data: bytes) -> str:
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         )
     return media_type
-
-
-def detect_kind(filename: str, content_type: str | None, data: bytes) -> Kind:
-    """Decide by content first (PDF and image magic bytes), then by declared type and extension."""
-    if data.startswith(b"%PDF-"):
-        return "pdf"
-    if image_media_type(data):
-        return "image"
-    suffix = PurePath(filename or "").suffix.lower()
-    ctype = (content_type or "").lower()
-    if suffix == ".pdf" or ctype in PDF_TYPES:
-        raise DocumentError("That file isn't a valid PDF")
-    if suffix in UNREADABLE_IMAGE_SUFFIXES or ctype in {"image/heic", "image/heif", "image/avif"}:
-        raise DocumentError(
-            "That photo format isn't supported; use a JPEG or PNG",
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        )
-    if ctype.startswith("image/"):
-        raise DocumentError("That file isn't a valid image")
-    if suffix in TEXT_SUFFIXES or ctype in TEXT_TYPES:
-        return "text"
-    raise DocumentError(
-        "Unsupported file type; upload a photo, a PDF or a .txt file",
-        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-    )
-
-
-def _truncate(text: str) -> tuple[str, bool]:
-    text = text.strip()
-    if len(text) <= MAX_TEXT_CHARS:
-        return text, False
-    return text[:MAX_TEXT_CHARS], True
-
-
-def _decode_text(data: bytes) -> str:
-    # Only trust UTF-16 with a BOM: almost any even-length byte string "decodes" as UTF-16.
-    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
-        return data.decode("utf-16", errors="replace")
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        pass
-    # Last resort: legacy single-byte encodings (Windows receipts exports) never fail to decode.
-    return data.decode("cp1252", errors="replace")
-
-
-def _extract_pdf(data: bytes) -> tuple[str, int]:
-    try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted and not reader.decrypt(""):
-            raise DocumentError("That PDF is password-protected")
-        pages = len(reader.pages)
-        if pages == 0:
-            raise DocumentError("That PDF has no pages")
-        if pages > MAX_PDF_PAGES:
-            raise DocumentError(
-                f"That PDF has {pages} pages; the limit is {MAX_PDF_PAGES}",
-                status.HTTP_413_CONTENT_TOO_LARGE,
-            )
-        text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    except DocumentError:
-        raise
-    except (PdfReadError, ValueError, KeyError, TypeError) as e:
-        raise DocumentError("Couldn't read that PDF; it may be damaged") from e
-    return text, pages
-
-
-def extract_document(filename: str, content_type: str | None, data: bytes) -> ExtractedDocument:
-    if not data:
-        raise DocumentError("That file is empty")
-    if len(data) > MAX_FILE_BYTES:
-        raise DocumentError(
-            f"Files can be at most {MAX_FILE_BYTES // (1024 * 1024)} MB",
-            status.HTTP_413_CONTENT_TOO_LARGE,
-        )
-
-    kind = detect_kind(filename, content_type, data)
-    if kind == "image":
-        return ExtractedDocument(
-            kind="image", text="", pages=1, truncated=False, media_type=image_media_type(data)
-        )
-    if kind == "text":
-        text, truncated = _truncate(_decode_text(data))
-        if not text:
-            raise DocumentError("That file has no text in it")
-        return ExtractedDocument(kind="text", text=text, pages=1, truncated=truncated)
-
-    raw, pages = _extract_pdf(data)
-    if len(raw.strip()) < MIN_CHARS_PER_PAGE * pages:
-        raw = ""  # scanned: let the caller fall back to Claude reading the PDF itself
-    text, truncated = _truncate(raw)
-    return ExtractedDocument(kind="pdf", text=text, pages=pages, truncated=truncated)

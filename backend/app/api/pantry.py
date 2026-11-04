@@ -14,22 +14,11 @@ from app.schemas import (
     GroceryItemIn,
     GroceryItemOut,
     ParsedItem,
-    ParseFileResponse,
     ParseRequest,
     ParseResponse,
-    ReadListResponse,
 )
-from app.services import grocery_text
-from app.services.ai import (
-    AIQuotaDep,
-    AnthropicDep,
-    canonical_name,
-    parse_grocery_image,
-    parse_grocery_pdf,
-    parse_grocery_text,
-)
-from app.services.documents import MAX_FILE_BYTES, DocumentError, extract_document, require_image
-from app.services.ocr import OcrError, ReaderDep
+from app.services.ai import AIQuotaDep, AnthropicDep, canonical_name, parse_grocery_text
+from app.services.documents import MAX_FILE_BYTES, DocumentError, require_image
 from app.services.vision import DetectorDep, VisionError
 
 router = APIRouter(prefix="/api/pantry", tags=["pantry"])
@@ -61,49 +50,9 @@ def parse_pantry_text(
     session: OptionalSessionDep,
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    """Turn a pasted grocery list or receipt into items for the user to review (not saved)."""
+    """Turn a pasted grocery list into items for the user to review (not saved)."""
     known = _known_names(session)
     return ParseResponse(items=parse_grocery_text(client, settings, body.text, known))
-
-
-@router.post("/parse-file", response_model=ParseFileResponse)
-def parse_pantry_file(
-    file: Annotated[
-        UploadFile, File(description="A photo, PDF or plain-text grocery list or receipt")
-    ],
-    _user_id: CurrentUserId,
-    client: AnthropicDep,
-    _quota: AIQuotaDep,
-    session: OptionalSessionDep,
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """
-    Upload a grocery list, receipt or photo of groceries (JPEG/PNG/WebP/GIF, PDF or .txt) and
-    get items to review (not saved). PDFs with a text layer are read locally; scanned PDFs and
-    photos are read by Claude.
-    """
-    data = file.file.read(MAX_FILE_BYTES + 1)
-    name = file.filename or "upload"
-    doc = extract_document(name, file.content_type, data)
-    known = _known_names(session)
-
-    if doc.kind == "image":
-        items = parse_grocery_image(client, settings, data, doc.media_type, known)
-        method = "photo"
-    elif doc.text:
-        items = parse_grocery_text(client, settings, doc.text, known)
-        method = "text"
-    else:
-        items = parse_grocery_pdf(client, settings, data, known)
-        method = "scan"
-    return ParseFileResponse(
-        items=items,
-        file_name=name,
-        kind=doc.kind,
-        pages=doc.pages,
-        method=method,
-        truncated=doc.truncated,
-    )
 
 
 # Dependency order: auth (401) -> detector installed and loaded (503) -> per-user rate limit (429).
@@ -142,35 +91,6 @@ def detect_pantry_photo(
         ],
         width=result.width,
         height=result.height,
-        seconds=round(result.seconds, 2),
-    )
-
-
-# Dependency order: auth (401) -> text reader installed and loaded (503) -> rate limit (429).
-@router.post("/read-list", response_model=ReadListResponse)
-def read_pantry_list(
-    file: Annotated[
-        UploadFile, File(description="A photo of a receipt or shopping list (JPEG/PNG/WebP/GIF)")
-    ],
-    _user_id: CurrentUserId,
-    reader: ReaderDep,
-    _quota: AIQuotaDep,
-    session: OptionalSessionDep,
-):
-    """
-    Read a photo of a receipt or printed list locally (OpenCV finds the lines, TrOCR reads them,
-    no LLM) and return the groceries on it as items to review (not saved), with the text read.
-    Photos of the food itself have no text, so they come back with no items.
-    """
-    data = file.file.read(MAX_FILE_BYTES + 1)
-    require_image(data)
-    try:
-        result = reader.read(data)
-    except OcrError as e:
-        raise DocumentError(str(e)) from e
-    return ReadListResponse(
-        items=grocery_text.parse_grocery_text(result.text, _known_names(session)),
-        lines=result.lines,
         seconds=round(result.seconds, 2),
     )
 

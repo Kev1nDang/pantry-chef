@@ -38,7 +38,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 - **AI features (Claude, signed-in users):**
   - **Snap groceries:** on a phone, the camera button opens the rear camera. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) boxes and counts what it sees: "6 eggs, 3 bananas". You review and edit the items before adding. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
   - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
-  - **Upload or paste:** a PDF, a text file, or pasted text works the same way.
+  - **Paste a list:** paste a typed grocery list and AI turns it into items you review before adding.
   - **Cook something from my pantry:** AI writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
 - **Responsive and dark-mode aware.**
 
@@ -109,7 +109,6 @@ While both servers are running, the Vite dev server forwards `/api/*` to `localh
 | PUT    | `/api/pantry`       | ✓    | Replace the user's grocery list   |
 | POST   | `/api/pantry/parse` | ✓ AI | Body `{text}` → parsed items to review (nothing is saved) |
 | POST   | `/api/pantry/detect` | ✓    | Multipart `file`: a photo → groceries counted by the local detector (`pcs`), plus the boxes it found. No LLM |
-| POST   | `/api/pantry/parse-file` | ✓ AI | Multipart `file`: a photo (JPEG/PNG/WebP/GIF), PDF or text file, up to 5 MB → parsed items to review |
 
 Saved photos don't go through the API: the web app uploads them straight to the private `pantry-photos` Storage bucket with the user's session, and row level security keeps each user to their own `<user id>/` folder ([migration](supabase/migrations/20261026000000_pantry_photos.sql)).
 
@@ -132,8 +131,8 @@ backend/
 │   └── services/
 │       ├── matching.py     # Recipe scoring/ranking
 │       ├── units.py        # Unit conversion
-│       ├── ai.py           # All Claude calls: list/photo parsing, recipe generation
-│       ├── documents.py    # Upload type detection, PDF/text extraction
+│       ├── ai.py           # All Claude calls: pasted-list parsing, recipe generation
+│       ├── documents.py    # Photo upload validation
 │       ├── vision.py       # Local grocery detection: OWL-ViT (ONNX) + OpenCV
 │       └── ratelimit.py    # Per-user limit for AI routes
 └── tests/                  # pytest; fakes for the DB session and Anthropic client
@@ -184,7 +183,7 @@ Photos go to `POST /api/pantry/detect`, which runs entirely on the API server: n
 4. **Clean-up** turns those into one box per object: OpenCV's non-maximum suppression drops duplicate boxes, each object keeps only its most likely label, and boxes that contain several others (the whole egg carton) are dropped.
 5. The boxes are **counted per grocery** and returned as items in `pcs`, with the boxes so the app can draw them on the photo.
 
-If the detector finds nothing (a receipt or a handwritten list has nothing to count), or the server doesn't have it installed, the app reads the text in the photo with `POST /api/pantry/parse-file` instead.
+Photos are only ever read by the detector: nothing is sent to Claude, and receipts or written lists aren't read from photos. If the detector finds nothing, the app suggests a closer or brighter photo, or pasting a list; if the server doesn't have the detector installed, it says so.
 
 **Why OWL-ViT.** Most object detectors only know a fixed list of classes; the common pretrained ones (COCO) include about ten foods. OWL-ViT is *open-vocabulary*: it matches image regions against text, so the grocery list is just data in `vision.py` that can grow without retraining. It's Google's model under the Apache-2.0 license, which suits this MIT project, unlike most grocery-specific YOLO models on the Hub, which are AGPL. We use the int8 ONNX export from [Xenova/owlvit-base-patch32](https://huggingface.co/Xenova/owlvit-base-patch32) (`onnx/model_quantized.onnx`, 155 MB): ONNX Runtime runs it on a plain CPU in about 0.5 s per photo, with no PyTorch install.
 

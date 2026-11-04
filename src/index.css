@@ -530,7 +530,7 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 560px) { .review-list li { grid-template-columns: auto minmax(0, 1fr) 64px 100px; } }
 
 /* Add with AI: photo / file / paste */
-.ai-sources { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ai-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; }
 .source-btn {
   display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 12px; min-height: 112px; justify-content: center;
   border: 1px dashed var(--surface-3); border-radius: 14px; background: var(--surface-2); color: var(--text); font: inherit; text-align: center;

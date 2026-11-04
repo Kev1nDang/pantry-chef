@@ -3,7 +3,6 @@ import {
   ApiError,
   detectGroceries,
   messageOf,
-  parseGroceryFile,
   parseGroceryText,
   type DetectedPhoto,
   type NewGrocery,
@@ -15,7 +14,7 @@ import { UNITS, type Unit } from '../types';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 
-/** A photo or file to read as soon as the dialog opens. */
+/** A photo to look for groceries in as soon as the dialog opens. */
 export interface InitialUpload {
   file: Blob;
   name: string;
@@ -44,18 +43,6 @@ interface Row {
 
 type SaveState = 'saving' | 'saved' | 'failed' | null;
 
-const FILE_ACCEPT = 'image/*,application/pdf,.pdf,text/plain,.txt,.csv,.md';
-
-/** Count the groceries in a photo locally; null when the server has no detector (503). */
-async function detectOrNull(token: string, photo: Blob, name: string): Promise<DetectedPhoto | null> {
-  try {
-    return await detectGroceries(token, photo, name);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 503) return null;
-    throw err;
-  }
-}
-
 const isValid = (r: Row) => r.name.trim() !== '' && Number(r.amount) > 0;
 
 const toRows = (items: ParsedGrocery[]): Row[] =>
@@ -64,7 +51,7 @@ const toRows = (items: ParsedGrocery[]): Row[] =>
 export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, onClose }: Props) {
   const [text, setText] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [busy, setBusy] = useState<'text' | 'file' | null>(null);
+  const [busy, setBusy] = useState<'text' | 'photo' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   /** object URL of the photo being read, shown while reading and while reviewing */
@@ -72,8 +59,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   const [saveState, setSaveState] = useState<SaveState>(null);
   /** what the detector found in the photo, drawn over the preview */
   const [found, setFound] = useState<DetectedPhoto | null>(null);
-  const cameraInput = useRef<HTMLInputElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const started = useRef(false);
 
   useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
@@ -94,62 +80,58 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
     }
   }
 
-  async function readUpload(file: Blob, name: string, alreadySaved = false) {
+  /** Count the groceries in a photo of the food itself, with the server's local detector only. */
+  async function readPhoto(file: Blob, name: string, alreadySaved = false) {
     if (!token) return;
-    setBusy('file');
     setError(null);
     setNote(null);
     setSaveState(null);
     setPreview(null);
     setFound(null);
+    if (!isPhoto(file, name)) {
+      setError('That isn’t a photo. Take or choose a photo of your groceries.');
+      return;
+    }
+    setBusy('photo');
     try {
-      let upload = file;
-      let uploadName = name;
-      if (isPhoto(file, name)) {
-        upload = await preparePhoto(file);
-        uploadName = `${name.replace(/\.[^.]*$/, '') || 'photo'}.jpg`;
-        setPreview(URL.createObjectURL(upload));
-        if (!alreadySaved) {
-          // Saving runs alongside reading; a failed save doesn't stop the items from coming back.
-          setSaveState('saving');
-          onSavePhoto(upload).then(
-            () => setSaveState('saved'),
-            () => setSaveState('failed'),
-          );
-        }
-        // Groceries in the photo are counted by the local detector first. A receipt or a list
-        // has nothing for it to count, so those (and servers without it) get their text read.
-        const detected = await detectOrNull(token, upload, uploadName);
-        if (detected && detected.items.length > 0) {
-          setFound(detected);
-          setRows(toRows(detected.items));
-          return;
-        }
-        if (detected) setNote('No loose groceries spotted, so the text in the photo was read instead.');
+      const photo = await preparePhoto(file);
+      const photoName = `${name.replace(/\.[^.]*$/, '') || 'photo'}.jpg`;
+      setPreview(URL.createObjectURL(photo));
+      if (!alreadySaved) {
+        // Saving runs alongside detection; a failed save doesn't stop the items from coming back.
+        setSaveState('saving');
+        onSavePhoto(photo).then(
+          () => setSaveState('saved'),
+          () => setSaveState('failed'),
+        );
       }
-      const res = await parseGroceryFile(token, upload, uploadName);
-      if (res.truncated) setNote('That file was long, so only the first part was read.');
-      setRows(toRows(res.items));
+      const detected = await detectGroceries(token, photo, photoName);
+      setFound(detected);
+      setRows(toRows(detected.items));
     } catch (err) {
-      setError(messageOf(err));
+      setError(
+        err instanceof ApiError && err.status === 503
+          ? 'Spotting groceries in photos isn’t set up on this server yet. You can paste a list instead.'
+          : messageOf(err),
+      );
       setPreview(null);
     } finally {
       setBusy(null);
     }
   }
 
-  // Opened from the pantry's camera button or a saved photo: start reading right away (once,
-  // even when React mounts effects twice in development).
+  // Opened from the pantry's camera button or a saved photo: start right away (once, even when
+  // React mounts effects twice in development).
   useEffect(() => {
     if (!initial || started.current) return;
     started.current = true;
-    void readUpload(initial.file, initial.name, initial.saved);
+    void readPhoto(initial.file, initial.name, initial.saved);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function chosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ''; // so picking the same file again still fires a change
-    if (file) void readUpload(file, file.name);
+    e.target.value = ''; // so picking the same photo again still fires a change
+    if (file) void readPhoto(file, file.name);
   }
 
   function update(key: number, patch: Partial<Row>) {
@@ -209,8 +191,8 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
       <header>
         <h2 id="ai-add-title">Add with AI</h2>
         <p className="recipe-meta">
-          Snap your groceries, a receipt or a shopping list, or paste text. AI reads it into items you can
-          review before adding.
+          Snap your fridge, a shelf or your shopping bag, and the groceries in it are counted for you to
+          review before adding. Or paste a list.
         </p>
       </header>
 
@@ -228,23 +210,17 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
           ) : (
             <>
               <div className="ai-sources">
-                <button className="source-btn" disabled={busy !== null} onClick={() => cameraInput.current?.click()}>
+                <button className="source-btn" disabled={busy !== null} onClick={() => photoInput.current?.click()}>
                   <Icon name="camera" size={22} />
-                  <strong>Take a photo</strong>
-                  <span>Fridge, shelf, receipt or list</span>
-                </button>
-                <button className="source-btn" disabled={busy !== null} onClick={() => fileInput.current?.click()}>
-                  <Icon name="upload" size={22} />
-                  <strong>Upload a file</strong>
-                  <span>Photo, PDF or text file</span>
+                  <strong>Photo of your groceries</strong>
+                  <span>Fridge, shelf or shopping bag</span>
                 </button>
               </div>
-              {/* `capture` opens the rear camera on phones; desktops show a file picker instead. */}
-              <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={chosen} />
-              <input ref={fileInput} type="file" accept={FILE_ACCEPT} hidden onChange={chosen} />
+              {/* No `capture`: phones offer the camera or the photo library; desktops a file picker. */}
+              <input ref={photoInput} type="file" accept="image/*" hidden onChange={chosen} />
 
               <div className="divider">
-                <span>or paste text</span>
+                <span>or paste a list</span>
               </div>
               <textarea
                 className="paste-input"
@@ -252,15 +228,10 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                 maxLength={5000}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder={'2 lb chicken breast\n1 dozen eggs\nORG BNNA 1.2kg\nmilk 2L'}
-                aria-label="Grocery list or receipt text"
+                placeholder={'2 lb chicken breast\n1 dozen eggs\nbananas 1.2kg\nmilk 2L'}
+                aria-label="Grocery list"
               />
             </>
-          )}
-          {busy === 'file' && !preview && (
-            <p className="banner reading">
-              <span className="spinner" aria-hidden /> Reading the file…
-            </p>
           )}
           {error && (
             <p className="error-text" role="alert">
@@ -301,7 +272,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
           )}
           {note && <p className="banner">{note}</p>}
           {rows.length === 0 ? (
-            <p className="banner">No groceries found. Try a closer or brighter photo, or paste the list as text.</p>
+            <p className="banner">No groceries spotted. Try a closer or brighter photo, or paste a list.</p>
           ) : (
             <ul className="review-list">
               {rows.map((r) => (

@@ -86,7 +86,7 @@ export interface ParsedGrocery {
   unit: Unit;
 }
 
-/** AI: turn a pasted list or receipt into items to review. Nothing is saved. */
+/** AI: turn a pasted grocery list into items to review. Nothing is saved. */
 export async function parseGroceryText(token: string, text: string): Promise<ParsedGrocery[]> {
   const res = await request<{ items: ParsedGrocery[] }>('/pantry/parse', {
     method: 'POST',
@@ -94,24 +94,6 @@ export async function parseGroceryText(token: string, text: string): Promise<Par
     token,
   });
   return res.items;
-}
-
-export interface ParsedFile {
-  items: ParsedGrocery[];
-  fileName: string;
-  kind: 'pdf' | 'text' | 'image';
-  pages: number;
-  /** text: read from the file's text; scan: a PDF without text, read by AI; photo: an image, read by AI */
-  method: 'text' | 'scan' | 'photo';
-  /** the file's text was longer than the parser accepts and was cut off */
-  truncated: boolean;
-}
-
-/** AI: turn an uploaded photo, PDF or text file into items to review. Nothing is saved. */
-export function parseGroceryFile(token: string, file: Blob, name: string) {
-  const form = new FormData();
-  form.append('file', file, name);
-  return request<ParsedFile>('/pantry/parse-file', { method: 'POST', form, token });
 }
 
 export interface DetectedBox {

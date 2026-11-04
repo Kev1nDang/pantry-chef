@@ -107,25 +107,6 @@ class DetectResponse(ParseResponse):
     seconds: float
 
 
-class ReadListResponse(ParseResponse):
-    """Items from a photo of a receipt or list, read locally (OCR + the rule-based parser)."""
-
-    # The text read off the photo, one entry per printed line.
-    lines: list[str]
-    seconds: float
-
-
-class ParseFileResponse(ParseResponse):
-    file_name: str
-    kind: Literal["pdf", "text", "image"]
-    pages: int
-    # "text": read from the file's text; "scan": a PDF with no text layer, read by Claude;
-    # "photo": an image, read by Claude.
-    method: Literal["text", "scan", "photo"]
-    # The extracted text was longer than the parser accepts and was cut off.
-    truncated: bool
-
-
 # --- Account --------------------------------------------------------------------------------
 
 

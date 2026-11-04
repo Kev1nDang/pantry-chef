@@ -28,15 +28,6 @@ class Settings(BaseSettings):
     # Load the model in the background at startup so the first photo isn't slow.
     vision_warmup: bool = True
 
-    # Local text reading for photos of receipts and lists (POST /api/pantry/read-list): OpenCV
-    # finds the lines, TrOCR reads them. Same optional dependencies as the detector. For
-    # handwritten lists, point the repo at Xenova/trocr-small-handwritten.
-    ocr_enabled: bool = True
-    ocr_model_repo: str = "Xenova/trocr-small-printed"
-    ocr_encoder_file: str = "onnx/encoder_model_quantized.onnx"
-    ocr_decoder_file: str = "onnx/decoder_model_merged_quantized.onnx"
-    ocr_warmup: bool = True
-
     @property
     def sqlalchemy_url(self) -> str:
         """Supabase hands out `postgresql://` URIs; SQLAlchemy needs the psycopg 3 driver named."""
