@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import account, health, pantry, recipes
 from app.config import get_settings
-from app.services import vision
+from app.services import ocr, vision
 from app.services.ai import AIError
 from app.services.documents import DocumentError
 
@@ -15,11 +15,17 @@ from app.services.documents import DocumentError
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    # Downloading (first run) and loading the models takes a while; don't block startup on it.
     if settings.vision_enabled and settings.vision_warmup and vision.available():
-        # Downloading (first run) and loading the model takes a while; don't block startup on it.
         threading.Thread(
             target=vision.warm_up,
             args=(settings.vision_model_repo, settings.vision_model_file),
+            daemon=True,
+        ).start()
+    if settings.ocr_enabled and settings.ocr_warmup and ocr.available():
+        threading.Thread(
+            target=ocr.warm_up,
+            args=(settings.ocr_model_repo, settings.ocr_encoder_file, settings.ocr_decoder_file),
             daemon=True,
         ).start()
     yield

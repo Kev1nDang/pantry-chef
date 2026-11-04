@@ -107,6 +107,14 @@ class DetectResponse(ParseResponse):
     seconds: float
 
 
+class ReadListResponse(ParseResponse):
+    """Items from a photo of a receipt or list, read locally (OCR + the rule-based parser)."""
+
+    # The text read off the photo, one entry per printed line.
+    lines: list[str]
+    seconds: float
+
+
 class ParseFileResponse(ParseResponse):
     file_name: str
     kind: Literal["pdf", "text", "image"]
