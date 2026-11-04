@@ -98,9 +98,17 @@ class DetectedBox(ApiModel):
     box: tuple[int, int, int, int]
 
 
-class DetectResponse(ParseResponse):
-    """Groceries counted in a photo by the local detector (amounts are counts, in pcs)."""
+class DetectedItem(ParsedItem):
+    # The amount is a typical package size ("milk carton" -> 1 l), not something the photo shows.
+    estimated: bool
+    # The best box's score (0..1); low means the detector isn't sure what this is.
+    confidence: float
 
+
+class DetectResponse(ApiModel):
+    """Groceries found in a photo by the local detector, with the boxes behind them."""
+
+    items: list[DetectedItem]
     detections: list[DetectedBox]
     width: int
     height: int

@@ -4,6 +4,7 @@ import {
   detectGroceries,
   messageOf,
   parseGroceryText,
+  type DetectedGrocery,
   type DetectedPhoto,
   type NewGrocery,
   type ParsedGrocery,
@@ -39,14 +40,34 @@ interface Row {
   name: string;
   amount: string;
   unit: Unit;
+  /** the detector's name for this row, to find its boxes even after the user renames it */
+  detected?: string;
+  /** the amount is a typical package size: ask the user to check it */
+  estimated?: boolean;
+  /** the detector wasn't confident: ask the user to check what it is */
+  unsure?: boolean;
 }
 
 type SaveState = 'saving' | 'saved' | 'failed' | null;
 
+/** Below this detector score a row is marked "Not sure" (OWLv2 keeps boxes from 0.25 up). */
+const UNSURE_BELOW = 0.35;
+
 const isValid = (r: Row) => r.name.trim() !== '' && Number(r.amount) > 0;
 
-const toRows = (items: ParsedGrocery[]): Row[] =>
-  items.map((it, i) => ({ key: i, include: true, name: it.name, amount: String(it.amount), unit: it.unit }));
+const toRows = (items: (ParsedGrocery | DetectedGrocery)[]): Row[] =>
+  items.map((it, i) => ({
+    key: i,
+    include: true,
+    name: it.name,
+    amount: String(it.amount),
+    unit: it.unit,
+    ...('confidence' in it && {
+      detected: it.name,
+      estimated: it.estimated,
+      unsure: it.confidence < UNSURE_BELOW,
+    }),
+  }));
 
 export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, onClose }: Props) {
   const [text, setText] = useState('');
@@ -59,6 +80,8 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   const [saveState, setSaveState] = useState<SaveState>(null);
   /** what the detector found in the photo, drawn over the preview */
   const [found, setFound] = useState<DetectedPhoto | null>(null);
+  /** the row being edited; its boxes are highlighted on the photo */
+  const [activeKey, setActiveKey] = useState<number | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const started = useRef(false);
 
@@ -144,6 +167,15 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
     setFound(null);
     setSaveState(null);
     setNote(null);
+    setActiveKey(null);
+  }
+
+  /** An empty row for something the detector missed. */
+  function addRow() {
+    const list = rows ?? [];
+    const key = list.reduce((max, r) => Math.max(max, r.key), -1) + 1;
+    setRows([...list, { key, include: true, name: '', amount: '1', unit: 'pcs' }]);
+    setActiveKey(key);
   }
 
   const picked = rows?.filter((r) => r.include) ?? [];
@@ -156,19 +188,21 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
 
   // Label size in photo pixels, so labels stay readable whatever the photo's resolution.
   const labelSize = found ? Math.max(found.width, found.height) * 0.03 : 0;
+  const highlighted = rows?.find((r) => r.key === activeKey)?.detected ?? null;
+  const flagged = rows?.some((r) => r.estimated || r.unsure) ?? false;
   const photoPanel = preview && (
     <figure className="photo-preview">
       <div className="photo-stage">
         <img src={preview} alt="The photo being read" />
         {found && (
           <svg
-            className="photo-boxes"
+            className={`photo-boxes${highlighted ? ' has-highlight' : ''}`}
             viewBox={`0 0 ${found.width} ${found.height}`}
             preserveAspectRatio="xMidYMid meet" // letterboxes exactly like the img's object-fit: contain
             aria-hidden
           >
             {found.detections.map(({ name, box: [x, y, w, h] }, i) => (
-              <g key={i}>
+              <g key={i} className={name === highlighted ? 'highlight' : undefined}>
                 <rect x={x} y={y} width={w} height={h} rx={labelSize / 3} />
                 <text x={x + labelSize / 3} y={y + labelSize * 1.05} fontSize={labelSize}>
                   {name}
@@ -263,20 +297,28 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
               {saveState === 'failed' && 'Couldn’t save the photo, but its items are below.'}
             </p>
           )}
-          {found && (
+          {found && rows.length > 0 && (
             <p className="banner detector-note">
-              <Icon name="check" size={14} /> Counted {found.detections.length} item
-              {found.detections.length === 1 ? '' : 's'} in the photo. Amounts are counts, so adjust
-              them for things you buy by weight.
+              <Icon name="check" size={14} />
+              <span>
+                Found {rows.length} grocer{rows.length === 1 ? 'y' : 'ies'} in the photo.
+                {flagged && ' Check the marked rows: package sizes are typical sizes, not read from the photo.'}{' '}
+                Tap a row to see its boxes.
+              </span>
             </p>
           )}
           {note && <p className="banner">{note}</p>}
           {rows.length === 0 ? (
-            <p className="banner">No groceries spotted. Try a closer or brighter photo, or paste a list.</p>
+            <p className="banner">No groceries spotted. Try a closer or brighter photo, or add them below.</p>
           ) : (
             <ul className="review-list">
               {rows.map((r) => (
-                <li key={r.key} className={r.include ? '' : 'excluded'}>
+                <li
+                  key={r.key}
+                  className={[r.include ? '' : 'excluded', r.key === activeKey ? 'active' : ''].join(' ').trim()}
+                  onFocus={() => setActiveKey(r.key)}
+                  onClick={() => setActiveKey(r.key)}
+                >
                   <input
                     type="checkbox"
                     checked={r.include}
@@ -289,6 +331,8 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                     onChange={(e) => update(r.key, { name: e.target.value })}
                     aria-label="Name"
                     aria-invalid={r.name.trim() === ''}
+                    placeholder="What is it?"
+                    autoFocus={r.key === activeKey && r.name === ''}
                   />
                   <input
                     type="number"
@@ -296,9 +340,11 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                     step="any"
                     inputMode="decimal"
                     value={r.amount}
-                    onChange={(e) => update(r.key, { amount: e.target.value })}
+                    // Editing an estimated amount counts as checking it.
+                    onChange={(e) => update(r.key, { amount: e.target.value, estimated: false })}
                     aria-label={`Amount of ${r.name}`}
                     aria-invalid={!(Number(r.amount) > 0)}
+                    className={r.estimated ? 'needs-check' : undefined}
                   />
                   <select
                     value={r.unit}
@@ -311,10 +357,19 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
                       </option>
                     ))}
                   </select>
+                  {(r.estimated || r.unsure) && (
+                    <span className="row-flags">
+                      {r.estimated && <span className="flag flag-amount">Check amount</span>}
+                      {r.unsure && <span className="flag flag-unsure">Not sure</span>}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
           )}
+          <button className="btn btn-ghost add-row" onClick={addRow}>
+            <Icon name="plus" size={16} /> Add item
+          </button>
           <div className="dialog-actions">
             <button className="btn btn-ghost" onClick={back}>
               Back

@@ -10,10 +10,10 @@ from app.db import OptionalSessionDep, SessionDep
 from app.models import PantryItem, RecipeIngredient
 from app.schemas import (
     DetectedBox,
+    DetectedItem,
     DetectResponse,
     GroceryItemIn,
     GroceryItemOut,
-    ParsedItem,
     ParseRequest,
     ParseResponse,
 )
@@ -65,9 +65,9 @@ def detect_pantry_photo(
     session: OptionalSessionDep,
 ):
     """
-    Count the groceries in a photo with the local detector (OWL-ViT via ONNX Runtime, no LLM)
-    and return them as items to review (not saved), with the boxes it found. Amounts are counts
-    in pcs; receipts and written lists find nothing, since the detector doesn't read text.
+    Find the groceries in a photo with the local detector (OWLv2 via ONNX Runtime, no LLM) and
+    return them as items to review (not saved), with the boxes it found. Loose items are counted
+    ("6 egg"); packages get a typical size marked `estimated` ("milk carton" -> 1 l).
     """
     data = file.file.read(MAX_FILE_BYTES + 1)
     require_image(data)
@@ -76,15 +76,30 @@ def detect_pantry_photo(
     except VisionError as e:
         raise DocumentError(str(e)) from e
 
-    # Use the recipe ingredient name when it's the same food, as the AI parser does.
+    # Use the recipe ingredient name when it's the same food, as the text parser does.
     known = _known_names(session)
     names = {d.name: canonical_name(d.name, known) for d in result.detections}
-    counts: dict[str, int] = {}
-    for d in result.detections:
-        counts[names[d.name]] = counts.get(names[d.name], 0) + 1
+
+    # Totals per (name, unit); two detector names can map onto one recipe ingredient.
+    items: dict[tuple[str, str], DetectedItem] = {}
+    for t in result.totals():
+        name = names[t.name]
+        if (name, t.unit) in items:
+            prev = items[(name, t.unit)]
+            prev.amount = round(prev.amount + t.amount, 2)
+            prev.estimated = prev.estimated or t.estimated
+            prev.confidence = max(prev.confidence, round(t.confidence, 3))
+        else:
+            items[(name, t.unit)] = DetectedItem(
+                name=name,
+                amount=round(t.amount, 2),
+                unit=t.unit,
+                estimated=t.estimated,
+                confidence=round(t.confidence, 3),
+            )
 
     return DetectResponse(
-        items=[ParsedItem(name=n, amount=c, unit="pcs") for n, c in counts.items()],
+        items=list(items.values()),
         detections=[
             DetectedBox(name=names[d.name], score=round(d.score, 3), box=d.box)
             for d in result.detections

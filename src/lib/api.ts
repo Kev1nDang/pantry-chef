@@ -103,9 +103,15 @@ export interface DetectedBox {
   box: [number, number, number, number];
 }
 
+export interface DetectedGrocery extends ParsedGrocery {
+  /** the amount is a typical package size ("milk carton" -> 1 l), not read from the photo */
+  estimated: boolean;
+  /** the best box's score, 0..1; low means the detector isn't sure what this is */
+  confidence: number;
+}
+
 export interface DetectedPhoto {
-  /** counted groceries (unit pcs) */
-  items: ParsedGrocery[];
+  items: DetectedGrocery[];
   detections: DetectedBox[];
   width: number;
   height: number;
@@ -113,8 +119,8 @@ export interface DetectedPhoto {
 }
 
 /**
- * Count the groceries in a photo with the server's local detector (Hugging Face OWL-ViT run with
- * ONNX Runtime + OpenCV): free and fast, no LLM. Throws ApiError 503 when the server doesn't have it.
+ * Find the groceries in a photo with the server's local detector (Hugging Face OWLv2 run with
+ * ONNX Runtime + OpenCV): free, no LLM. Throws ApiError 503 when the server doesn't have it.
  */
 export function detectGroceries(token: string, photo: Blob, name: string) {
   const form = new FormData();

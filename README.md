@@ -36,7 +36,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 - **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
 - **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
 - **AI features (Claude, signed-in users):**
-  - **Snap groceries:** on a phone, the camera button opens the rear camera. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) boxes and counts what it sees: "6 eggs, 3 bananas". You review and edit the items before adding. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
+  - **Scan groceries:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) boxes and counts what it sees: "6 eggs, 3 bananas". Packages get a typical size ("milk carton" → 1 l) marked **Check amount**, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights its boxes on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
   - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
   - **Paste a list:** paste a typed grocery list and AI turns it into items you review before adding.
   - **Cook something from my pantry:** AI writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
@@ -53,7 +53,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 | Database | Supabase Postgres                          |
 | Auth     | Supabase Auth (`supabase-js`), verified by the API |
 | AI       | Claude API via the `anthropic` Python SDK (server-side only) |
-| Vision   | [OWL-ViT](https://huggingface.co/google/owlvit-base-patch32) from the Hugging Face Hub, run with ONNX Runtime; OpenCV + NumPy for image processing |
+| Vision   | [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble) from the Hugging Face Hub, run with ONNX Runtime; OpenCV + NumPy for image processing |
 | CI       | GitHub Actions: lint + build, ruff + pytest |
 
 ## Getting started
@@ -108,7 +108,7 @@ While both servers are running, the Vite dev server forwards `/api/*` to `localh
 | GET    | `/api/pantry`       | ✓    | The signed-in user's groceries    |
 | PUT    | `/api/pantry`       | ✓    | Replace the user's grocery list   |
 | POST   | `/api/pantry/parse` | ✓ AI | Body `{text}` → parsed items to review (nothing is saved) |
-| POST   | `/api/pantry/detect` | ✓    | Multipart `file`: a photo → groceries counted by the local detector (`pcs`), plus the boxes it found. No LLM |
+| POST   | `/api/pantry/detect` | ✓    | Multipart `file`: a photo → groceries found by the local detector (counts, or typical package sizes flagged `estimated`, with a `confidence`), plus the boxes it found. No LLM |
 
 Saved photos don't go through the API: the web app uploads them straight to the private `pantry-photos` Storage bucket with the user's session, and row level security keeps each user to their own `<user id>/` folder ([migration](supabase/migrations/20261026000000_pantry_photos.sql)).
 
@@ -178,16 +178,28 @@ src/
 Photos go to `POST /api/pantry/detect`, which runs entirely on the API server: no LLM call and no per-photo cost.
 
 1. **The browser** shrinks the photo to at most 1568 px and re-encodes it as JPEG (`src/lib/image.ts`), applying the camera's rotation.
-2. **OpenCV** decodes it, converts it to RGB and resizes it to 768 × 768; **NumPy** normalizes the pixels the way the model was trained.
-3. **ONNX Runtime** runs [OWL-ViT](https://huggingface.co/google/owlvit-base-patch32) on the CPU against about 55 grocery descriptions ("egg", "milk carton", "bag of rice"…). The model proposes 576 boxes, each scored against every description.
-4. **Clean-up** turns those into one box per object: OpenCV's non-maximum suppression drops duplicate boxes, each object keeps only its most likely label, and boxes that contain several others (the whole egg carton) are dropped.
-5. The boxes are **counted per grocery** and returned as items in `pcs`, with the boxes so the app can draw them on the photo.
+2. **OpenCV** decodes it and converts it to RGB; **NumPy** pads it to a gray square, and OpenCV resizes it to 960 × 960. The pixels are normalized the way the model was trained. All of this follows the model's own `preprocessor_config.json`.
+3. **ONNX Runtime** runs [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble) on the CPU against about 65 grocery descriptions ("egg", "egg carton", "milk carton", "bag of rice"…). The model proposes 3,600 boxes, each scored against every description.
+4. **Clean-up** turns those into one box per object:
+   - A package box (an egg carton, a bunch of bananas) is dropped when loose items of the same grocery are seen inside it, so an open carton counts its eggs.
+   - OpenCV's non-maximum suppression drops duplicate boxes, and each object keeps only its most likely label.
+   - Boxes that contain several much smaller ones (a whole shelf) are dropped, along with weak leftovers.
+5. **Totals:** each grocery's boxes are added up. Loose items count as one piece each. Packages count as a typical size and are marked `estimated` (a closed egg carton → 12 eggs, a milk carton → 1 l, a bag of rice → 1 kg). Each item also gets the best box's score as its `confidence`.
 
-Photos are only ever read by the detector: nothing is sent to Claude, and receipts or written lists aren't read from photos. If the detector finds nothing, the app suggests a closer or brighter photo, or pasting a list; if the server doesn't have the detector installed, it says so.
+**In the app**, the review screen draws the boxes on the photo. Rows with an estimated amount are marked **Check amount**, and rows with a confidence below 0.35 are marked **Not sure**. Tapping a row highlights its boxes, and **Add item** covers anything the detector missed. Nothing is saved until you tap Add.
 
-**Why OWL-ViT.** Most object detectors only know a fixed list of classes; the common pretrained ones (COCO) include about ten foods. OWL-ViT is *open-vocabulary*: it matches image regions against text, so the grocery list is just data in `vision.py` that can grow without retraining. It's Google's model under the Apache-2.0 license, which suits this MIT project, unlike most grocery-specific YOLO models on the Hub, which are AGPL. We use the int8 ONNX export from [Xenova/owlvit-base-patch32](https://huggingface.co/Xenova/owlvit-base-patch32) (`onnx/model_quantized.onnx`, 155 MB): ONNX Runtime runs it on a plain CPU in about 0.5 s per photo, with no PyTorch install.
+Photos are only ever read by the detector: nothing is sent to Claude, and receipts or written lists aren't read from photos. If the detector finds nothing, the app suggests a closer or brighter photo; if the server doesn't have the detector installed, it says so.
 
-**Accuracy and limits.** On test photos it counted 6/6 eggs in a carton, and 7/7 oranges, 3/3 bananas and 7 of 8 apples on a fruit plate (it called the last, half-hidden apple a tomato). It misses objects that are mostly hidden, struggles with very crowded scenes like a market stall, can't read labels or receipts, and can't weigh anything, so amounts are counts. That's why every result goes through the review step.
+**Why OWLv2.** Most object detectors only know a fixed list of classes; the common pretrained ones (COCO) include about ten foods. OWLv2 is *open-vocabulary*: it matches image regions against text, so the grocery list is just data in `vision.py` that can grow without retraining. It's Google's model under the Apache-2.0 license, which suits this MIT project, unlike most grocery-specific YOLO models on the Hub, which are AGPL. We use the int8 ONNX export from [Xenova/owlv2-base-patch16-ensemble](https://huggingface.co/Xenova/owlv2-base-patch16-ensemble) (`onnx/model_quantized.onnx`, 155 MB), which needs no PyTorch install.
+
+**Accuracy and speed.** [`backend/scripts/eval_vision.py`](backend/scripts/eval_vision.py) runs the real model on 11 freely licensed photos ([`vision_eval.json`](backend/scripts/vision_eval.json)): fruit, eggs, milk, two fridges, store shelves and a market stall. It compares what the detector finds with what a person counts:
+
+| Model (`VISION_MODEL_REPO`) | Checks passed | Time per photo (12-core laptop CPU) |
+|---|---|---|
+| `Xenova/owlv2-base-patch16-ensemble` (default) | 15 / 24 | about 7 s |
+| `Xenova/owlvit-base-patch32` (the older OWL-ViT) | 9 / 24 | about 0.6 s |
+
+OWLv2 gets eggs, oranges, apples, limes and lemons right, and finds the potatoes, tomatoes, peppers, carrots and onions in a crowded market photo. The older model misses all of those. OWLv2 is weakest on cluttered fridge doors: sauce bottles become "ketchup", and the yogurt cup and some butter are missed. It also miscounts items that are mostly hidden, and it can't read labels or weigh anything. That's why every result goes through the review step. Run the script after changing the vocabulary or the thresholds in `vision.py`.
 
 **Setup.** The dependencies are in [`backend/requirements-vision.txt`](backend/requirements-vision.txt) (included by `requirements-dev.txt`). The model is downloaded from the Hugging Face Hub on first use and cached under `HF_HOME` (default `~/.cache/huggingface`); the API starts loading it in the background at startup. Settings: `VISION_ENABLED`, `VISION_MODEL_REPO`, `VISION_MODEL_FILE`, `VISION_WARMUP`.
 

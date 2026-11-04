@@ -1,0 +1,71 @@
+{
+  "about": "Test photos for the grocery detector (scripts/eval_vision.py). Each photo lists what a person counts in it: an exact number, or [min, max] when items are partly hidden. `present` photos (store shelves, crowded piles) only check that each grocery is found. All photos are from Wikimedia Commons; the license is noted per photo.",
+  "photos": [
+    {
+      "file": "eggs6.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/6-Pack-Chicken-Eggs.jpg/1280px-6-Pack-Chicken-Eggs.jpg",
+      "license": "Public domain",
+      "expect": {"egg": 6}
+    },
+    {
+      "file": "fruit3.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c1/Fruit-49740_bananas_apples_tangerines_-_Hans_Braxmeier.jpg/1280px-Fruit-49740_bananas_apples_tangerines_-_Hans_Braxmeier.jpg",
+      "license": "CC0",
+      "expect": {"orange": 7, "apple": 8, "banana": 3}
+    },
+    {
+      "file": "fruitbowl.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Apples_and_bananas_in_bowl.jpg/1280px-Apples_and_bananas_in_bowl.jpg",
+      "license": "Public domain",
+      "expect": {"apple": [5, 8], "banana": 2}
+    },
+    {
+      "file": "milk_table.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/A_carton_of_mik_and_cup_on_a_table_at_home.jpg/1280px-A_carton_of_mik_and_cup_on_a_table_at_home.jpg",
+      "license": "CC BY-SA 4.0",
+      "expect": {"milk": 1}
+    },
+    {
+      "file": "peppers.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/69/Peppers_in_water.jpg/1280px-Peppers_in_water.jpg",
+      "license": "CC0",
+      "expect": {"chili pepper": 2}
+    },
+    {
+      "file": "limes_lemons.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/eb/Limes_%26_Lemons_-_DSC06057.JPG/1280px-Limes_%26_Lemons_-_DSC06057.JPG",
+      "license": "CC0",
+      "expect": {"lime": [13, 17], "lemon": [12, 16]}
+    },
+    {
+      "file": "fridge_door.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fd/Fridge_contents.jpg/1280px-Fridge_contents.jpg",
+      "license": "CC BY-SA 4.0",
+      "expect": {"butter": 1, "yogurt": 1, "ketchup": [1, 2]}
+    },
+    {
+      "file": "fridge_shelves.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3c/Gfp-fridge-contents.jpg/1280px-Gfp-fridge-contents.jpg",
+      "license": "Public domain",
+      "expect": {"milk": [1, 3], "juice": 1, "vegetable oil": 2}
+    },
+    {
+      "file": "milk_shelf.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2d/Cartons_of_Nature%27s_Promise_milk_%2850855058622%29.jpg/1280px-Cartons_of_Nature%27s_Promise_milk_%2850855058622%29.jpg",
+      "license": "CC BY-SA 2.0",
+      "present": ["milk"]
+    },
+    {
+      "file": "beans_shelf.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fb/Canned_Beans_on_Grocery_Shelf.jpg/1280px-Canned_Beans_on_Grocery_Shelf.jpg",
+      "license": "CC0",
+      "present": ["canned beans"]
+    },
+    {
+      "file": "market.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/60/Des_paniers_de_l%C3%A9gumes_au_march%C3%A9.jpg/1280px-Des_paniers_de_l%C3%A9gumes_au_march%C3%A9.jpg",
+      "license": "CC BY-SA 4.0",
+      "present": ["potato", "cabbage", "tomato", "bell pepper", "carrot", "onion"]
+    }
+  ]
+}

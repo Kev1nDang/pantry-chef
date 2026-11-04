@@ -24,7 +24,7 @@ interface Props {
   onClear: () => void;
   /** open the Add with AI dialog */
   onAddWithAI: () => void;
-  /** a photo just taken with the camera button, to read */
+  /** a photo taken or picked with the Scan groceries button, to read */
   onPhoto: (file: File) => void;
   onOpenPhoto: (photo: SavedPhoto) => void;
   onSample: () => void;
@@ -40,13 +40,13 @@ const STEPS = [
 export function PantryView(props: Props) {
   const { groceries, syncError, recipeCounts, photos } = props;
   const [query, setQuery] = useState('');
-  const camera = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
 
   const q = query.trim().toLowerCase();
   const shown = q ? groceries.filter((g) => g.name.toLowerCase().includes(q)) : groceries;
 
-  // Signed in, go straight to the camera; signed out, the dialog explains why to sign in.
-  const snap = () => (props.signedIn ? camera.current?.click() : props.onAddWithAI());
+  // Signed in, go straight to the photo picker; signed out, the dialog explains why to sign in.
+  const scan = () => (props.signedIn ? photoInput.current?.click() : props.onAddWithAI());
 
   function taken(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -56,7 +56,8 @@ export function PantryView(props: Props) {
 
   return (
     <div className="view">
-      <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={taken} />
+      {/* No `capture`: phones then offer both "Take Photo" and "Photo Library". */}
+      <input ref={photoInput} type="file" accept="image/*" hidden onChange={taken} />
       <header className="view-header">
         <div>
           <h1>Your pantry</h1>
@@ -67,8 +68,8 @@ export function PantryView(props: Props) {
           </p>
         </div>
         <div className="view-actions">
-          <button className="btn btn-primary" onClick={snap}>
-            <Icon name="camera" size={16} /> Snap groceries
+          <button className="btn btn-primary" onClick={scan}>
+            <Icon name="camera" size={16} /> Scan groceries
           </button>
           <button className="btn btn-secondary" onClick={props.onAddWithAI}>
             <Icon name="sparkles" size={16} /> Add with AI
@@ -107,8 +108,8 @@ export function PantryView(props: Props) {
             ))}
           </ol>
           <div className="empty-actions">
-            <button className="btn btn-primary" onClick={snap}>
-              <Icon name="camera" size={16} /> Snap your groceries
+            <button className="btn btn-primary" onClick={scan}>
+              <Icon name="camera" size={16} /> Scan your groceries
             </button>
             <button className="btn btn-secondary" onClick={props.onSample}>
               Try with sample groceries

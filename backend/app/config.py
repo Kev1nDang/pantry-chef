@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Local grocery detection (POST /api/pantry/detect). Needs requirements-vision.txt; the
     # ONNX model is downloaded from the Hugging Face Hub (cached under HF_HOME) on first use.
     vision_enabled: bool = True
-    vision_model_repo: str = "Xenova/owlvit-base-patch32"
+    vision_model_repo: str = "Xenova/owlv2-base-patch16-ensemble"
     vision_model_file: str = "onnx/model_quantized.onnx"
     # Load the model in the background at startup so the first photo isn't slow.
     vision_warmup: bool = True
