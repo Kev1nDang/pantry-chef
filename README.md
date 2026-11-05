@@ -263,7 +263,7 @@ OWLv2 also added far fewer wrong extra items: at the same 0.25 cutoff it added 1
 
 OWLv2 gets eggs, oranges, apples, limes and lemons right, and finds the potatoes, tomatoes, peppers, carrots and onions in a crowded market photo. The older model misses all of those. OWLv2 is weakest on cluttered fridge doors: sauce bottles become "ketchup", and the yogurt cup and some butter are missed. It also misses items that are mostly hidden. That's why every count goes through the review step. Run the script after changing the vocabulary or the thresholds in `vision.py`.
 
-**Setup.** The dependencies are in [`backend/requirements-vision.txt`](backend/requirements-vision.txt) (included by `requirements-dev.txt`). The model is downloaded from the Hugging Face Hub on first use and cached under `HF_HOME` (default `~/.cache/huggingface`); the API starts loading it in the background at startup. Settings: `VISION_ENABLED`, `VISION_MODEL_REPO`, `VISION_MODEL_FILE`, `VISION_WARMUP`.
+**Setup.** The dependencies are in [`backend/requirements-vision.txt`](backend/requirements-vision.txt) (included by `requirements-dev.txt`). The model is downloaded from the Hugging Face Hub on first use and cached under `HF_HOME` (default `~/.cache/huggingface`); the API starts loading it in the background at startup. Settings: `VISION_ENABLED`, `VISION_MODEL_REPO`, `VISION_MODEL_FILE`, `VISION_WARMUP`, `VISION_THREADS`. `VISION_THREADS` sets the ONNX Runtime thread count. The default, 0, uses the container's CPU limit, because ONNX Runtime otherwise sizes its pool to the host's cores and oversubscribes a 2-vCPU container. The Cloud Run deploy sets it to the vCPU count.
 
 ## How matching works
 

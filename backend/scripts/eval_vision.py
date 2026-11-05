@@ -59,7 +59,9 @@ def main() -> None:
     args.cache.mkdir(parents=True, exist_ok=True)
 
     settings = get_settings()
-    detector = load_detector(settings.vision_model_repo, settings.vision_model_file)
+    detector = load_detector(
+        settings.vision_model_repo, settings.vision_model_file, settings.vision_threads
+    )
     photos = json.loads((HERE / "vision_eval.json").read_text(encoding="utf-8"))["photos"]
 
     passed = total = 0

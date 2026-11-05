@@ -19,7 +19,7 @@ async def lifespan(_app: FastAPI):
         # Downloading (first run) and loading the model takes a while; don't block startup on it.
         threading.Thread(
             target=vision.warm_up,
-            args=(settings.vision_model_repo, settings.vision_model_file),
+            args=(settings.vision_model_repo, settings.vision_model_file, settings.vision_threads),
             daemon=True,
         ).start()
     yield

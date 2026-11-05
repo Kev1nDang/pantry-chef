@@ -42,7 +42,8 @@ CLEANUP_POLICY = [
 ]
 # A scan takes ~1.75 GB at its peak and every core while it runs; scans queue one at a time per
 # instance (GroceryDetector's lock), so 4 GiB leaves room for the other requests.
-RESOURCES = ["--cpu", "2", "--memory", "4Gi", "--cpu-boost", "--concurrency", "8"]
+CPUS = "2"
+RESOURCES = ["--cpu", CPUS, "--memory", "4Gi", "--cpu-boost", "--concurrency", "8"]
 SCALING = ["--min-instances", "0", "--max-instances", "2", "--timeout", "120"]
 
 # Terminals opened before the install don't have gcloud on PATH yet; try the default location too.
@@ -181,6 +182,9 @@ def main() -> None:
         "CORS_ORIGINS": json.dumps(origins),
         # The model is baked into the image: don't ask the Hub for updates on every cold start.
         "HF_HUB_OFFLINE": "1",
+        # One ONNX Runtime thread per vCPU. Its default follows the host's cores, which
+        # oversubscribes the container (about 2x slower per scan on 2 cores).
+        "VISION_THREADS": CPUS,
     }
 
     step(f"Building and deploying {SERVICE} to {args.region} (the first build takes ~5 minutes)")

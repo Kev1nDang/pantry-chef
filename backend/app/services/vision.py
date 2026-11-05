@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -226,6 +227,7 @@ class GroceryDetector:
         options = ort.SessionOptions()
         if threads:
             options.intra_op_num_threads = threads
+            options.inter_op_num_threads = 1
         self._session = ort.InferenceSession(
             str(model_path), options, providers=["CPUExecutionProvider"]
         )
@@ -360,12 +362,47 @@ def _clean(detections: list[Detection]) -> list[Detection]:
     return kept[:MAX_ITEMS]
 
 
+def _cgroup_cpus(root: Path = Path("/sys/fs/cgroup")) -> float | None:
+    """A Linux container's CPU quota in CPUs (2.0 for `--cpu 2`), or None without one."""
+    try:
+        quota, period = (root / "cpu.max").read_text().split()  # cgroup v2: "200000 100000"
+    except (OSError, ValueError):
+        try:  # cgroup v1
+            quota = (root / "cpu" / "cpu.cfs_quota_us").read_text().strip()
+            period = (root / "cpu" / "cpu.cfs_period_us").read_text().strip()
+        except OSError:
+            return None
+    try:
+        return int(quota) / int(period) if int(quota) > 0 else None
+    except ValueError:  # "max": no quota
+        return None
+
+
+def cpu_limit() -> int:
+    """
+    How many CPUs this process is limited to, or 0 when it may use the whole machine.
+
+    ONNX Runtime sizes its thread pool from the machine's cores, not from a container's CPU
+    quota. A 2-vCPU container on a bigger host then runs many threads on 2 CPUs' worth of time,
+    and OWLv2 took 20.0 s a photo on 2 cores that way against 10.8 s with 2 threads (eval set).
+    """
+    total = os.cpu_count() or 1
+    allowed = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else total
+    quota = _cgroup_cpus()
+    if quota is not None:
+        allowed = min(allowed, max(1, int(quota)))
+    return allowed if allowed < total else 0
+
+
 _lock = threading.Lock()
 _detectors: dict[tuple[str, str], GroceryDetector] = {}
 
 
-def load_detector(repo: str, model_file: str) -> GroceryDetector:
-    """The shared detector, downloading the model from the Hugging Face Hub on first use."""
+def load_detector(repo: str, model_file: str, threads: int = 0) -> GroceryDetector:
+    """
+    The shared detector, downloading the model from the Hugging Face Hub on first use. `threads`
+    0 means `cpu_limit()`; it applies when the model is first loaded.
+    """
     from huggingface_hub import hf_hub_download
 
     key = (repo, model_file)
@@ -374,14 +411,16 @@ def load_detector(repo: str, model_file: str) -> GroceryDetector:
             model = Path(hf_hub_download(repo, model_file))
             tokenizer = Path(hf_hub_download(repo, "tokenizer.json"))
             prep = Preprocessing.from_file(Path(hf_hub_download(repo, "preprocessor_config.json")))
-            _detectors[key] = GroceryDetector(model, tokenizer, prep)
+            threads = threads or cpu_limit()
+            _detectors[key] = GroceryDetector(model, tokenizer, prep, threads)
+            log.info("Grocery detector threads: %s", threads or "ONNX Runtime default")
         return _detectors[key]
 
 
-def warm_up(repo: str, model_file: str) -> None:
+def warm_up(repo: str, model_file: str, threads: int = 0) -> None:
     """Load the model ahead of the first request (run in a background thread at startup)."""
     try:
-        load_detector(repo, model_file)
+        load_detector(repo, model_file, threads)
         log.info("Grocery detector ready (%s/%s)", repo, model_file)
     except Exception:  # a failed warm-up just means the first request retries
         log.warning("Couldn't preload the grocery detector", exc_info=True)
@@ -398,7 +437,9 @@ def get_grocery_detector(settings: Annotated[Settings, Depends(get_settings)]) -
             "Grocery detection isn't installed on this server (see requirements-vision.txt)",
         )
     try:
-        return load_detector(settings.vision_model_repo, settings.vision_model_file)
+        return load_detector(
+            settings.vision_model_repo, settings.vision_model_file, settings.vision_threads
+        )
     except Exception as e:  # download/network/ONNX errors all mean "not available"
         log.exception("Couldn't load the grocery detector")
         raise HTTPException(

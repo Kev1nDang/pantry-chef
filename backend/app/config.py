@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     vision_model_file: str = "onnx/model_quantized.onnx"
     # Load the model in the background at startup so the first photo isn't slow.
     vision_warmup: bool = True
+    # ONNX Runtime threads for the detector. 0 = the CPUs this process is limited to (container
+    # CPU quota or CPU affinity), or ONNX Runtime's own default when it may use the whole machine.
+    vision_threads: int = 0
 
     @property
     def sqlalchemy_url(self) -> str:

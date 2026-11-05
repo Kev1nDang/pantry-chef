@@ -231,10 +231,49 @@ def test_detect_reports_missing_dependencies(client, auth_headers, monkeypatch):
 def test_detect_reports_a_model_that_wont_load(client, auth_headers, monkeypatch):
     monkeypatch.setattr(vision, "available", lambda: True)
 
-    def offline(repo, model_file):
+    def offline(repo, model_file, threads=0):
         raise OSError("no network")
 
     monkeypatch.setattr(vision, "load_detector", offline)
     res = upload(client, auth_headers)
     assert res.status_code == 503
     assert "couldn't be loaded" in res.json()["detail"]
+
+
+# --- thread count: follow the container's CPU limit, not the host's cores ---------------------
+
+
+@pytest.mark.parametrize(
+    ("files", "cpus"),
+    [
+        ({"cpu.max": "200000 100000\n"}, 2.0),  # cgroup v2, Cloud Run --cpu 2
+        ({"cpu.max": "max 100000\n"}, None),  # v2, no quota
+        ({"cpu/cpu.cfs_quota_us": "400000\n", "cpu/cpu.cfs_period_us": "100000\n"}, 4.0),  # v1
+        ({"cpu/cpu.cfs_quota_us": "-1\n", "cpu/cpu.cfs_period_us": "100000\n"}, None),  # v1, none
+        ({}, None),  # not Linux
+    ],
+)
+def test_cgroup_cpus_reads_the_quota(tmp_path, files, cpus):
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    assert vision._cgroup_cpus(tmp_path) == cpus
+
+
+@pytest.mark.parametrize(
+    ("cores", "affinity", "quota", "threads"),
+    [
+        (16, 16, 2.0, 2),  # Cloud Run: 2 vCPUs on a 16-core host
+        (16, 16, 0.5, 1),  # a fractional quota still gets a thread
+        (16, 4, None, 4),  # pinned to 4 cores
+        (16, 4, 8.0, 4),  # the tighter limit wins
+        (16, 16, None, 0),  # the whole machine: leave it to ONNX Runtime
+    ],
+)
+def test_cpu_limit(monkeypatch, cores, affinity, quota, threads):
+    monkeypatch.setattr(vision.os, "cpu_count", lambda: cores)
+    monkeypatch.setattr(
+        vision.os, "sched_getaffinity", lambda _pid: set(range(affinity)), raising=False
+    )
+    monkeypatch.setattr(vision, "_cgroup_cpus", lambda: quota)
+    assert vision.cpu_limit() == threads
