@@ -5,6 +5,12 @@ Downloads the photos listed in vision_eval.json (once, into the cache directory)
 model on each, and prints what it found next to what a person counts. Use it before and after
 changing the vocabulary or the thresholds in app/services/vision.py. It needs the vision
 dependencies and downloads the model on first run; the unit tests never do.
+
+Comparing vocabularies: the default int8 model quantizes its activations with one scale for the
+whole batch of text queries, so adding or removing queries nudges every food's scores. On this
+set that alone moved the result by about 2 of 24 checks. To compare two vocabularies, run both
+with the full-precision model (VISION_MODEL_FILE=onnx/model.onnx, a 586 MB download), then
+confirm the winner on the int8 model the app ships.
 """
 
 import argparse
