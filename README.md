@@ -2,7 +2,40 @@
 
 Pantry Chef suggests recipes based on the groceries you have. Enter what's in your kitchen and how much of it, and it ranks recipes by how much of each one you can already cover. It shows which ingredients you have, which are running low and which you need to buy.
 
-> 🚧 **This is an ongoing project under active development.** The React frontend now reads recipes and matches from a FastAPI + Supabase backend, so you need the API running (with a database) to see recipes. Expect breaking changes; see [docs/ROADMAP.md](docs/ROADMAP.md) for where things are headed.
+> 🚧 **This is an ongoing project under active development.** The API is deployed on Google Cloud Run. The web app runs locally for now and reads recipes and matches from that API. Expect breaking changes; see [docs/ROADMAP.md](docs/ROADMAP.md) for where things are headed.
+
+## Highlights
+
+- **Full-stack app:**
+  - The frontend is React 19 and TypeScript.
+  - The API is FastAPI with SQLAlchemy, on Supabase Postgres with row level security.
+  - Sign-in uses Supabase Auth, and the API checks every login token itself (ES256 signatures, verified against Supabase's published keys).
+- **Computer vision instead of a paid LLM:**
+  - Grocery photos are counted by [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble), an open-vocabulary detector from the Hugging Face Hub.
+  - It runs as an int8 ONNX model on the CPU with ONNX Runtime, with OpenCV and NumPy preparing the image. That means no per-photo API cost and no PyTorch.
+- **Model chosen by measurement:**
+  - Six open-vocabulary detectors were benchmarked on a labeled 11-photo test set. Each got the same food list and the same box clean-up.
+  - OWLv2 passed 15 of 24 checks (63%), against 3–12 for the others, and added the fewest wrong items. [Results](#how-photo-detection-works)
+- **The LLM only where it earns its cost:**
+  - Claude generates recipes and turns pasted lists into items. It's called from the server only.
+  - Its replies are checked against a Pydantic schema, and AI requests are rate-limited per user.
+- **Deployed:**
+  - The API runs as a Docker container on Google Cloud Run. It scales to zero when idle, and the model is built into the image, so a new instance never downloads it.
+  - Secrets are kept in Secret Manager, and one script does the whole deploy. It's safe to re-run.
+- **Tested:**
+  - 139 pytest tests fake the database and the Claude API, so they run without secrets or network access.
+  - GitHub Actions runs them, along with ruff, oxlint and a production build.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Web["React + TypeScript<br/>(Vite)"] -- "/api" --> API["FastAPI<br/>Google Cloud Run"]
+    Web -- "sign-in, saved photos" --> Supa[("Supabase<br/>Auth + Storage")]
+    API -- "SQLAlchemy" --> DB[("Supabase Postgres")]
+    API -- "photo" --> Vision["OWLv2 int8 ONNX<br/>ONNX Runtime + OpenCV"]
+    API -- "recipes, pasted lists" --> Claude["Claude API"]
+```
 
 ## Screenshots
 
@@ -35,11 +68,11 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 - **Shopping list:** to-buy and in-cart sections with a progress bar. **Put away in pantry** moves bought items back into your pantry. The list is stored in this browser.
 - **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
 - **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
-- **AI features (Claude, signed-in users):**
+- **Smart features (signed-in users):**
   - **Scan groceries:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) **counts the food it sees**: "6 eggs, 3 bananas, 2 milk". Every count is in pieces, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights what was counted on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
   - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
-  - **Paste a list:** paste a typed grocery list and AI turns it into items you review before adding.
-  - **Cook something from my pantry:** AI writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
+  - **Paste a list:** paste a typed grocery list and Claude turns it into items you review before adding.
+  - **Cook something from my pantry:** Claude writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
 - **Responsive and dark-mode aware.**
 
 ## Tech stack
@@ -134,7 +167,7 @@ backend/
 │       ├── units.py        # Unit conversion
 │       ├── ai.py           # All Claude calls: pasted-list parsing, recipe generation
 │       ├── documents.py    # Photo upload validation
-│       ├── vision.py       # Local grocery detection: OWL-ViT (ONNX) + OpenCV
+│       ├── vision.py       # Local grocery detection: OWLv2 (ONNX) + OpenCV
 │       └── ratelimit.py    # Per-user limit for AI routes
 └── tests/                  # pytest; fakes for the DB session and Anthropic client
 supabase/
@@ -151,7 +184,7 @@ src/
 │   ├── StatTiles.tsx       # Count-up stat widgets
 │   ├── GroceryForm.tsx     # Quick-add bar: name / amount / unit
 │   ├── GroceryList.tsx     # Editable grocery list with steppers
-│   ├── AddWithAIDialog.tsx # AI: photo / file / pasted text → review → add
+│   ├── AddWithAIDialog.tsx # Photo (local detector) or pasted list (Claude) → review → add
 │   ├── PhotoViewer.tsx     # A saved photo: read it again or delete it
 │   ├── CookDialog.tsx      # AI: generate a recipe from the pantry
 │   ├── RecipeCard.tsx      # Ranked result card with coverage meter
@@ -191,7 +224,7 @@ The API runs on [Cloud Run](https://cloud.google.com/run), which runs a containe
    - For local development, set `API_PROXY_TARGET=<API URL>` in `.env.local`. The Vite dev server then forwards `/api` to Cloud Run, so no CORS setup is needed.
    - For a production build, set `VITE_API_URL` to the same URL.
 
-The first build takes about 5 minutes. After a while without requests the service scales to zero, and the next request waits a few seconds for it to start.
+The first build takes about 5 minutes. After about 15 minutes without requests the service scales to zero. The next request then waits about 25 seconds while a new instance starts and loads the model. After that, requests take about 0.3 s, and a photo scan takes about 19–25 s on the 2 vCPUs.
 
 **Hugging Face Space instead.** The same image runs as a [Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker) (2 vCPUs, 16 GB), but Docker Spaces need a Hugging Face PRO subscription. With one, `hf auth login` and then `python scripts/deploy_space.py --secrets-from-env` creates `<your account>/pantry-chef-api` and uploads the image sources and the Space page ([`backend/space/README.md`](backend/space/README.md)).
 
@@ -213,12 +246,20 @@ Photos are only ever read by the detector: nothing is sent to Claude, and receip
 
 **Why OWLv2.** Most object detectors only know a fixed list of classes; the common pretrained ones (COCO) include about ten foods. OWLv2 is *open-vocabulary*: it matches image regions against text, so the grocery list is just data in `vision.py` that can grow without retraining. It's Google's model under the Apache-2.0 license, which suits this MIT project, unlike most grocery-specific YOLO models on the Hub, which are AGPL. We use the int8 ONNX export from [Xenova/owlv2-base-patch16-ensemble](https://huggingface.co/Xenova/owlv2-base-patch16-ensemble) (`onnx/model_quantized.onnx`, 155 MB), which needs no PyTorch install.
 
-**Accuracy and speed.** [`backend/scripts/eval_vision.py`](backend/scripts/eval_vision.py) runs the real model on 11 freely licensed photos ([`vision_eval.json`](backend/scripts/vision_eval.json)): fruit, eggs, milk, two fridges, store shelves and a market stall. It compares what the detector finds with what a person counts:
+**Accuracy and speed.** [`backend/scripts/eval_vision.py`](backend/scripts/eval_vision.py) runs the real model on 11 freely licensed photos ([`vision_eval.json`](backend/scripts/vision_eval.json)): fruit, eggs, milk, two fridges, store shelves and a market stall. It compares what the detector finds with what a person counts, in 24 checks. Some checks need an exact count (or a range); others only need the food to be found.
 
-| Model (`VISION_MODEL_REPO`) | Checks passed | Time per photo (12-core laptop CPU) |
+Six open-vocabulary detectors were compared on this set. Each got the same food list and the same box clean-up, and each ran at its own default score threshold. The run used a one-off harness that isn't in the repo, on a 12-core laptop CPU:
+
+| Model | Checks passed | Time per photo |
 |---|---|---|
-| `Xenova/owlv2-base-patch16-ensemble` (default) | 15 / 24 | about 7 s |
-| `Xenova/owlvit-base-patch32` (the older OWL-ViT) | 9 / 24 | about 0.6 s |
+| **OWLv2 base, int8 ONNX (used)** | **15 / 24 (63%)** | 7.9 s |
+| MM Grounding DINO tiny | 12 / 24 | 17.5 s |
+| LLMDet tiny | 11 / 24 | 15.9 s |
+| OWL-ViT B/32, int8 ONNX | 9 / 24 | 0.9 s |
+| Grounding DINO tiny | 6 / 24 | 16.4 s |
+| OmDet-Turbo tiny | 3 / 24 | 1.9 s |
+
+OWLv2 also added the fewest wrong extra items: 18, against 39–68 for the three DINO-family models (Grounding DINO, MM Grounding DINO and LLMDet). Those models mistake limes for lemons and add many confident wrong foods. They ran in PyTorch (fp32), so their times aren't directly comparable with the int8 ONNX models. Lowering OWLv2's threshold from 0.25 to 0.15 passes 18 checks but nearly doubles the wrong extras, so it stays at 0.25. Switch between OWLv2 and OWL-ViT with `VISION_MODEL_REPO` (`Xenova/owlv2-base-patch16-ensemble`, the default, or `Xenova/owlvit-base-patch32`).
 
 OWLv2 gets eggs, oranges, apples, limes and lemons right, and finds the potatoes, tomatoes, peppers, carrots and onions in a crowded market photo. The older model misses all of those. OWLv2 is weakest on cluttered fridge doors: sauce bottles become "ketchup", and the yogurt cup and some butter are missed. It also misses items that are mostly hidden. That's why every count goes through the review step. Run the script after changing the vocabulary or the thresholds in `vision.py`.
 
