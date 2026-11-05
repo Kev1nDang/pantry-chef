@@ -15,7 +15,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
   - It runs as an int8 ONNX model on the CPU with ONNX Runtime, with OpenCV and NumPy preparing the image. That means no per-photo API cost and no PyTorch.
 - **Model chosen by measurement:**
   - Six open-vocabulary detectors were benchmarked on a labeled 11-photo test set. Each got the same food list and the same box clean-up.
-  - OWLv2 passed 15 of 24 checks (63%), against 3–12 for the others, and added the fewest wrong items. [Results](#how-photo-detection-works)
+  - OWLv2 passed 15 of 24 checks (63%), against 3–12 for the others. It also added far fewer wrong items than the Grounding DINO models. [Results](#how-photo-detection-works)
 - **The LLM only where it earns its cost:**
   - Claude generates recipes and turns pasted lists into items. It's called from the server only.
   - Its replies are checked against a Pydantic schema, and AI requests are rate-limited per user.
@@ -259,7 +259,7 @@ Six open-vocabulary detectors were compared on this set. Each got the same food 
 | Grounding DINO tiny | 6 / 24 | 16.4 s |
 | OmDet-Turbo tiny | 3 / 24 | 1.9 s |
 
-OWLv2 also added the fewest wrong extra items: at the same 0.25 cutoff it added 18 across the eight fully listed photos, against 39–52 for the three DINO-family models (Grounding DINO, MM Grounding DINO and LLMDet). Those models mistake limes for lemons and add many confident wrong foods. They ran in PyTorch (fp32), so their times aren't directly comparable with the int8 ONNX models. Lowering OWLv2's threshold from 0.25 to 0.15 passes 18 checks but nearly doubles the wrong extras, so it stays at 0.25. Switch between OWLv2 and OWL-ViT with `VISION_MODEL_REPO` (`Xenova/owlv2-base-patch16-ensemble`, the default, or `Xenova/owlvit-base-patch32`).
+OWLv2 also added far fewer wrong extra items: at the same 0.25 cutoff it added 18 across the eight fully listed photos, against 39–52 for the three DINO-family models (Grounding DINO, MM Grounding DINO and LLMDet). Those models mistake limes for lemons and add many confident wrong foods. They ran in PyTorch (fp32), so their times aren't directly comparable with the int8 ONNX models. Lowering OWLv2's threshold from 0.25 to 0.15 passes 18 checks but nearly doubles the wrong extras, so it stays at 0.25. Switch between OWLv2 and OWL-ViT with `VISION_MODEL_REPO` (`Xenova/owlv2-base-patch16-ensemble`, the default, or `Xenova/owlvit-base-patch32`).
 
 OWLv2 gets eggs, oranges, apples, limes and lemons right, and finds the potatoes, tomatoes, peppers, carrots and onions in a crowded market photo. The older model misses all of those. OWLv2 is weakest on cluttered fridge doors: sauce bottles become "ketchup", and the yogurt cup and some butter are missed. It also misses items that are mostly hidden. That's why every count goes through the review step. Run the script after changing the vocabulary or the thresholds in `vision.py`.
 
