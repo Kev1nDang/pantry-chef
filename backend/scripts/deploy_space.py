@@ -1,6 +1,9 @@
 """
 Deploy the API to a Hugging Face Docker Space: python scripts/deploy_space.py [--space USER/NAME]
 
+Docker Spaces need a Hugging Face PRO subscription (free accounts get "402 Payment Required");
+scripts/deploy_cloud_run.py deploys the same image to Google Cloud Run's free tier instead.
+
 Creates the Space if needed and uploads only what the image needs (Dockerfile, requirements, app/)
 plus the Space page (space/README.md). Never uploads .env, tests or the virtualenv. Needs a
 Hugging Face write token on this machine (`hf auth login`).
@@ -14,23 +17,13 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
 
+from envfile import BACKEND, read_env
 from huggingface_hub import HfApi
 
-BACKEND = Path(__file__).resolve().parents[1]
 UPLOAD = ["Dockerfile", "requirements.txt", "requirements-vision.txt", "app/**/*.py"]
 SECRETS = ["DATABASE_URL", "ANTHROPIC_API_KEY", "SUPABASE_JWT_SECRET"]
 VARIABLES = ["SUPABASE_URL"]
-
-
-def read_env(path: Path) -> dict[str, str]:
-    values = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"^\s*([A-Z_]+)\s*=\s*(.*?)\s*$", line)
-        if match and match.group(2):
-            values[match.group(1)] = match.group(2)
-    return values
 
 
 def space_host(repo_id: str) -> str:
@@ -66,7 +59,7 @@ def main() -> None:
     )
 
     if args.secrets_from_env:
-        env = read_env(BACKEND / ".env")
+        env = read_env()
         for key in SECRETS:
             if key in env:
                 api.add_space_secret(repo_id, key, env[key])

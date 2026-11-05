@@ -1,6 +1,7 @@
-# The Pantry Chef API as a Hugging Face Docker Space (https://huggingface.co/docs/hub/spaces-sdks-docker),
-# or any other container host. Configuration comes from environment variables (Space secrets):
-# DATABASE_URL, SUPABASE_URL, ANTHROPIC_API_KEY, CORS_ORIGINS, ... (see .env.example).
+# The Pantry Chef API as a container: Google Cloud Run (scripts/deploy_cloud_run.py), a Hugging
+# Face Docker Space (scripts/deploy_space.py) or any other host. Configuration comes from
+# environment variables: DATABASE_URL, SUPABASE_URL, ANTHROPIC_API_KEY, CORS_ORIGINS, ...
+# (see .env.example).
 FROM python:3.11-slim
 
 # ONNX Runtime needs OpenMP; OpenCV's headless build needs GLib.
@@ -30,5 +31,6 @@ RUN python -c "from huggingface_hub import hf_hub_download as get; \
 
 COPY --chown=user app ./app
 
+# Listen on $PORT when the host sets it (Cloud Run: 8080), else 7860 (what Spaces expect).
 EXPOSE 7860
-CMD ["fastapi", "run", "app/main.py", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "exec fastapi run app/main.py --host 0.0.0.0 --port ${PORT:-7860}"]

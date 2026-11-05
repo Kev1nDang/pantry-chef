@@ -229,6 +229,9 @@ class GroceryDetector:
         self._session = ort.InferenceSession(
             str(model_path), options, providers=["CPUExecutionProvider"]
         )
+        # One photo at a time: a run already uses every core, and two at once would double the
+        # ~1.4 GB it needs on top of the model, enough to get a 4 GB container killed.
+        self._run_lock = threading.Lock()
 
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         tokenizer.enable_truncation(TEXT_LENGTH)
@@ -274,14 +277,15 @@ class GroceryDetector:
         height, width = bgr.shape[:2]
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        logits, boxes = self._session.run(
-            ["logits", "pred_boxes"],
-            {
-                "input_ids": self._input_ids,
-                "attention_mask": self._attention_mask,
-                "pixel_values": self._pixels(rgb),
-            },
-        )
+        with self._run_lock:
+            logits, boxes = self._session.run(
+                ["logits", "pred_boxes"],
+                {
+                    "input_ids": self._input_ids,
+                    "attention_mask": self._attention_mask,
+                    "pixel_values": self._pixels(rgb),
+                },
+            )
         scores = 1.0 / (1.0 + np.exp(-logits[0]))  # (one candidate box per patch, queries)
         best_query = scores.argmax(axis=1)
         best_score = scores.max(axis=1)

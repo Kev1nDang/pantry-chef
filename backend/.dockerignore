@@ -1,0 +1,11 @@
+# Keep local `docker build` contexts small and secret-free (see .gcloudignore for Cloud Build).
+.env
+.env.*
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+tests/
+scripts/
+space/

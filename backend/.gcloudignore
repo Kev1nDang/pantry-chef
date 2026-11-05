@@ -1,0 +1,14 @@
+# What `gcloud run deploy --source` leaves out of the upload to Cloud Build. The image only needs
+# the Dockerfile, the requirements files and app/; secrets reach the service from Secret Manager.
+.gcloudignore
+.dockerignore
+.env
+.env.*
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+tests/
+scripts/
+space/

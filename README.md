@@ -55,7 +55,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 | AI       | Claude API via the `anthropic` Python SDK (server-side only) |
 | Vision   | [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble) from the Hugging Face Hub, run with ONNX Runtime; OpenCV + NumPy for image processing |
 | CI       | GitHub Actions: lint + build, ruff + pytest |
-| Hosting  | API: Hugging Face Docker Space ([how](#deploy-the-api-to-a-hugging-face-space)) |
+| Hosting  | API: Docker container on Google Cloud Run, secrets in Secret Manager ([how](#deploy-the-api-to-google-cloud-run)) |
 
 ## Getting started
 
@@ -174,23 +174,26 @@ src/
 └── index.css               # Styles and theme tokens
 ```
 
-## Deploy the API to a Hugging Face Space
+## Deploy the API to Google Cloud Run
 
-The API runs as a free [Hugging Face Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker). The free CPU tier has 2 vCPUs and 16 GB of RAM, and a photo scan needs about 1.75 GB. [`backend/Dockerfile`](backend/Dockerfile) installs the API and bakes the OWLv2 model into the image, so a Space waking from sleep doesn't download it again.
+The API runs on [Cloud Run](https://cloud.google.com/run), which runs a container only while it handles requests and scales to zero between them. Its monthly free tier (180,000 vCPU-seconds, 360,000 GiB-seconds, 2 million requests) covers thousands of photo scans. [`backend/Dockerfile`](backend/Dockerfile) installs the API and bakes the OWLv2 model into the image, so a cold start doesn't download it. A scan needs about 1.75 GB at its peak; the service gets 2 vCPUs and 4 GiB.
 
-1. Sign in once with a Hugging Face **write** token: `hf auth login`.
-2. From `backend/`, run `python scripts/deploy_space.py`. It creates `<your account>/pantry-chef-api` if it doesn't exist. Then it uploads the Dockerfile, the requirements files, `app/` and the Space page ([`backend/space/README.md`](backend/space/README.md)); it never uploads `.env` or the tests. It prints the API URL, `https://<account>-pantry-chef-api.hf.space`.
-3. Configure the Space under **Settings → Variables and secrets**:
-   - `DATABASE_URL` and `ANTHROPIC_API_KEY` as secrets;
-   - `SUPABASE_URL` as a variable;
-   - `CORS_ORIGINS`, the web app's origins as a JSON list, as a variable.
+1. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and sign in: `gcloud auth login`.
+2. Create a project with billing turned on (new accounts get free trial credit), then select it: `gcloud config set project <project-id>`.
+3. From `backend/`, run `python scripts/deploy_cloud_run.py`. It:
+   - turns on Cloud Run, Cloud Build, Artifact Registry and Secret Manager;
+   - copies `DATABASE_URL` and `ANTHROPIC_API_KEY` from `backend/.env` into Secret Manager, readable only by the service's own service account;
+   - builds the image with Cloud Build (no local Docker needed; [`backend/.gcloudignore`](backend/.gcloudignore) keeps `.env` and the tests out of the upload);
+   - deploys the `pantry-chef-api` service (scales from 0 to 2 instances) and prints its URL, `https://pantry-chef-api-<id>.<region>.run.app`.
 
-   `--secrets-from-env` copies the first three from `backend/.env`, and `--cors-origin https://your-app.vercel.app` (repeatable) sets the last.
-4. Point the web app at the Space:
-   - For local development, set `API_PROXY_TARGET=https://<account>-pantry-chef-api.hf.space` in `.env.local`. The Vite dev server then forwards `/api` to the Space, so no CORS setup is needed.
+   `--cors-origin https://your-app.vercel.app` (repeatable) sets the web app origins. Re-running the script redeploys.
+4. Point the web app at the API:
+   - For local development, set `API_PROXY_TARGET=<API URL>` in `.env.local`. The Vite dev server then forwards `/api` to Cloud Run, so no CORS setup is needed.
    - For a production build, set `VITE_API_URL` to the same URL.
 
-The first build takes a few minutes. On the free tier, the Space sleeps after 48 hours without requests, and the first request after that waits for it to start.
+The first build takes about 5 minutes. After a while without requests the service scales to zero, and the next request waits a few seconds for it to start.
+
+**Hugging Face Space instead.** The same image runs as a [Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker) (2 vCPUs, 16 GB), but Docker Spaces need a Hugging Face PRO subscription. With one, `hf auth login` and then `python scripts/deploy_space.py --secrets-from-env` creates `<your account>/pantry-chef-api` and uploads the image sources and the Space page ([`backend/space/README.md`](backend/space/README.md)).
 
 ## How photo detection works
 
