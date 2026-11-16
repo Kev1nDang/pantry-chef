@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { AddWithAIDialog, type InitialUpload } from './components/AddWithAIDialog';
 import { CookDialog } from './components/CookDialog';
 import { PantryView } from './components/PantryView';
@@ -17,6 +17,9 @@ import { useShoppingList } from './lib/useShoppingList';
 import { useToast } from './lib/useToast';
 import type { GroceryItem, RecipeIngredient, RecipeMatch } from './types';
 
+// The camera view loads on first use, so the app itself stays small.
+const LiveScan = lazy(() => import('./components/LiveScan').then((m) => ({ default: m.LiveScan })));
+
 const SAMPLE: NewGrocery[] = [
   { name: 'eggs', amount: 6, unit: 'pcs' },
   { name: 'butter', amount: 200, unit: 'g' },
@@ -28,6 +31,7 @@ const SAMPLE: NewGrocery[] = [
 
 type Dialog =
   | { kind: 'add'; initial?: InitialUpload }
+  | { kind: 'scan' }
   | { kind: 'photo'; photo: SavedPhoto }
   | { kind: 'cook' }
   | { kind: 'signin' }
@@ -213,6 +217,7 @@ export default function App() {
             }
             onClear={() => changePantry(() => [], 'Pantry cleared')}
             onAddWithAI={() => setDialog({ kind: 'add' })}
+            onLiveScan={() => setDialog({ kind: 'scan' })}
             onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
             onOpenPhoto={(photo) => setDialog({ kind: 'photo', photo })}
             onSample={() => addGroceries(SAMPLE)}
@@ -284,9 +289,25 @@ export default function App() {
           initial={dialog.initial}
           onSavePhoto={photoStore.save}
           onAdd={addGroceries}
+          onLiveScan={() => setDialog({ kind: 'scan' })}
           onSignIn={() => setDialog({ kind: 'signin' })}
           onClose={() => setDialog(null)}
         />
+      )}
+      {dialog?.kind === 'scan' && token && (
+        <Suspense fallback={null}>
+          <LiveScan
+            token={token}
+            onAdd={addGroceries}
+            onSavePhoto={(photo) =>
+              photoStore.save(photo).catch(() => {
+                showToast('Your items were added, but a scanned photo couldn’t be saved.');
+              })
+            }
+            onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
+            onClose={() => setDialog(null)}
+          />
+        </Suspense>
       )}
       {dialog?.kind === 'photo' && (
         <PhotoViewer

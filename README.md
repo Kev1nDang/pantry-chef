@@ -69,7 +69,8 @@ flowchart LR
 - **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
 - **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
 - **Smart features (signed-in users):**
-  - **Scan groceries:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) **counts the food it sees**: "6 eggs, 3 bananas, 2 milk". Every count is in pieces, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights what was counted on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
+  - **Live scan:** open the camera and pan around your fridge. Hold the phone still on a shelf (or tap the shutter) and the view freezes while the detector reads it. Each food gets a **green box with its name on top**: tap one to check the name and count, then add it to a tray. Keep scanning shelf by shelf, then add the whole tray to your pantry in one go. The same shelf isn't scanned twice in a row, and boxes the detector isn't sure about are dashed amber. See [Live scan](#live-scan).
+  - **Upload photo:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) **counts the food it sees**: "6 eggs, 3 bananas, 2 milk". Every count is in pieces, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights what was counted on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
   - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
   - **Paste a list:** paste a typed grocery list and Claude turns it into items you review before adding.
   - **Cook something from my pantry:** Claude writes a recipe around what you have, with optional dietary, time and servings constraints. Generated recipes are clearly marked **AI-generated**.
@@ -87,7 +88,7 @@ flowchart LR
 | Auth     | Supabase Auth (`supabase-js`), verified by the API |
 | AI       | Claude API via the `anthropic` Python SDK (server-side only) |
 | Vision   | [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble) from the Hugging Face Hub, run with ONNX Runtime; OpenCV + NumPy for image processing |
-| CI       | GitHub Actions: lint + build, ruff + pytest |
+| CI       | GitHub Actions: lint + vitest + build, ruff + pytest |
 | Hosting  | API: Docker container on Google Cloud Run, secrets in Secret Manager ([how](#deploy-the-api-to-google-cloud-run)) |
 
 ## Getting started
@@ -105,12 +106,16 @@ Then open http://localhost:5173. Recipes come from the API, so start the backend
 
 **Sign-in (optional):** copy [`.env.example`](.env.example) to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase dashboard → Project Settings → API). In Supabase → Authentication → URL Configuration, add `http://localhost:5173` to the redirect URLs so magic links come back to the dev server. Without these variables the app runs signed out and the AI features are unavailable.
 
-| Script            | What it does                         |
-| ----------------- | ------------------------------------ |
-| `npm run dev`     | Start the dev server with hot reload |
-| `npm run build`   | Type-check and build to `dist/`      |
-| `npm run preview` | Serve the production build locally   |
-| `npm run lint`    | Lint with oxlint                     |
+| Script              | What it does                                                   |
+| ------------------- | -------------------------------------------------------------- |
+| `npm run dev`       | Start the dev server with hot reload                           |
+| `npm run dev:phone` | The same, over HTTPS on your network, to try Live scan on a phone |
+| `npm run build`     | Type-check and build to `dist/`                                |
+| `npm run preview`   | Serve the production build locally                             |
+| `npm run lint`      | Lint with oxlint                                               |
+| `npm test`          | Unit tests with vitest                                         |
+
+**Trying Live scan on a phone:** browsers only give the camera to secure pages, so `npm run dev:phone` serves the app over HTTPS with a self-signed certificate on your local network. Open the `Network:` address it prints (`https://<your PC's IP>:5173`) on a phone on the same Wi-Fi and accept the certificate warning. To sign in on the phone, add that address to the Supabase redirect URLs too. On plain HTTP the Live scan button falls back to the photo picker.
 
 ### Backend
 
@@ -185,6 +190,8 @@ src/
 │   ├── GroceryForm.tsx     # Quick-add bar: name / amount / unit
 │   ├── GroceryList.tsx     # Editable grocery list with steppers
 │   ├── AddWithAIDialog.tsx # Photo (local detector) or pasted list (Claude) → review → add
+│   ├── LiveScan.tsx        # Full-screen camera: hold still to scan, tap boxes, tray → pantry
+│   ├── ScanBoxes.tsx       # Tappable green boxes and labels over a scanned shot
 │   ├── PhotoViewer.tsx     # A saved photo: read it again or delete it
 │   ├── CookDialog.tsx      # AI: generate a recipe from the pantry
 │   ├── RecipeCard.tsx      # Ranked result card with coverage meter
@@ -198,7 +205,9 @@ src/
 │   ├── useSession.ts       # Current Supabase session
 │   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry
 │   ├── usePhotos.ts        # Saved photos in Supabase Storage
-│   ├── image.ts            # Shrink and re-encode photos before upload
+│   ├── image.ts            # Shrink and re-encode photos (and camera frames) before upload
+│   ├── useCamera.ts        # Back camera stream, released when the page is hidden
+│   ├── scanFrame.ts        # Live scan logic: cover crop, hold-still detector, tray (unit-tested)
 │   ├── useShoppingList.ts  # Shopping list in localStorage
 │   ├── useToast.ts         # Single toast with auto-dismiss
 │   ├── foodEmoji.ts        # Grocery name → emoji
@@ -264,6 +273,17 @@ OWLv2 also added far fewer wrong extra items: at the same 0.25 cutoff it added 1
 OWLv2 gets eggs, oranges, apples, limes and lemons right, and finds the potatoes, tomatoes, peppers, carrots and onions in a crowded market photo. The older model misses all of those. OWLv2 is weakest on cluttered fridge doors: sauce bottles become "ketchup", and the yogurt cup and some butter are missed. It also misses items that are mostly hidden. That's why every count goes through the review step. Run the script after changing the vocabulary or the thresholds in `vision.py`.
 
 **Setup.** The dependencies are in [`backend/requirements-vision.txt`](backend/requirements-vision.txt) (included by `requirements-dev.txt`). The model is downloaded from the Hugging Face Hub on first use and cached under `HF_HOME` (default `~/.cache/huggingface`); the API starts loading it in the background at startup. Settings: `VISION_ENABLED`, `VISION_MODEL_REPO`, `VISION_MODEL_FILE`, `VISION_WARMUP`, `VISION_THREADS`. `VISION_THREADS` sets the ONNX Runtime thread count. The default, 0, uses the container's CPU limit, because ONNX Runtime otherwise sizes its pool to the host's cores and oversubscribes a 2-vCPU container. The Cloud Run deploy sets it to the vCPU count.
+
+### Live scan
+
+Live scan uses the same endpoint, one camera frame at a time. A scan takes several seconds on the server, so boxes can't follow the camera as it moves; instead the app waits for a still view:
+
+1. **Holding still:** a few times a second the live view is shrunk to a 64 × 48 grayscale thumbnail. When consecutive thumbnails barely differ for about 0.9 s, the phone is being held still and a scan starts. A view that's too dark, or that still looks like the last scanned shelf, doesn't trigger one. Auto can be turned off to use the shutter only.
+2. **Capture:** the frame is cropped to exactly what the screen shows (the video fills the screen with `object-fit: cover`), so the frozen shot lines up with the live view. It is shrunk and encoded the same way as an uploaded photo.
+3. **Boxes:** each detection becomes a button positioned in percent of the shot, with its label above. Tapping one opens a card with the name (editable, in case the detector got it wrong) and a count that starts at how many it found. **Add** puts it in the tray; tapping it again offers Undo.
+4. **Tray:** foods picked across shelves are summed by name. **Add N items** puts them in the pantry and saves the shots they came from under **Your photos**.
+
+The logic that doesn't need a camera (the crop, the hold-still detector and the tray) is in `src/lib/scanFrame.ts` with unit tests. The longer-term plan is a small detector running on the phone itself, so boxes can follow the camera live. It would reuse the same boxes, card and tray.
 
 ## How matching works
 

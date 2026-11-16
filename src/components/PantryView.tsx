@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import type { NewGrocery } from '../lib/api';
 import { formatDateTime } from '../lib/format';
+import { cameraSupported } from '../lib/useCamera';
 import type { SavedPhoto } from '../lib/usePhotos';
 import type { GroceryItem } from '../types';
 import { GroceryForm } from './GroceryForm';
@@ -24,7 +25,9 @@ interface Props {
   onClear: () => void;
   /** open the Add with AI dialog */
   onAddWithAI: () => void;
-  /** a photo taken or picked with the Scan groceries button, to read */
+  /** open the camera to scan shelf by shelf */
+  onLiveScan: () => void;
+  /** a photo taken or picked with the Upload photo button, to read */
   onPhoto: (file: File) => void;
   onOpenPhoto: (photo: SavedPhoto) => void;
   onSample: () => void;
@@ -46,7 +49,9 @@ export function PantryView(props: Props) {
   const shown = q ? groceries.filter((g) => g.name.toLowerCase().includes(q)) : groceries;
 
   // Signed in, go straight to the photo picker; signed out, the dialog explains why to sign in.
-  const scan = () => (props.signedIn ? photoInput.current?.click() : props.onAddWithAI());
+  const upload = () => (props.signedIn ? photoInput.current?.click() : props.onAddWithAI());
+  // The camera needs HTTPS and a browser that offers it; otherwise the photo picker does the job.
+  const scan = () => (props.signedIn && cameraSupported() ? props.onLiveScan() : upload());
 
   function taken(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -69,7 +74,10 @@ export function PantryView(props: Props) {
         </div>
         <div className="view-actions">
           <button className="btn btn-primary" onClick={scan}>
-            <Icon name="camera" size={16} /> Scan groceries
+            <Icon name="camera" size={16} /> Live scan
+          </button>
+          <button className="btn btn-secondary" onClick={upload}>
+            <Icon name="image" size={16} /> Upload photo
           </button>
           <button className="btn btn-secondary" onClick={props.onAddWithAI}>
             <Icon name="sparkles" size={16} /> Add with AI

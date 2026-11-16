@@ -121,10 +121,10 @@ export interface DetectedPhoto {
  * Count the foods in a photo with the server's local detector (Hugging Face OWLv2 run with
  * ONNX Runtime + OpenCV): free, no LLM. Throws ApiError 503 when the server doesn't have it.
  */
-export function detectGroceries(token: string, photo: Blob, name: string) {
+export function detectGroceries(token: string, photo: Blob, name: string, signal?: AbortSignal) {
   const form = new FormData();
   form.append('file', photo, name);
-  return request<DetectedPhoto>('/pantry/detect', { method: 'POST', form, token });
+  return request<DetectedPhoto>('/pantry/detect', { method: 'POST', form, token, signal });
 }
 
 export interface GenerateOptions {

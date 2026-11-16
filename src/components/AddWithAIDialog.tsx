@@ -11,6 +11,8 @@ import {
 } from '../lib/api';
 import { unitLabel } from '../lib/format';
 import { isPhoto, preparePhoto } from '../lib/image';
+import { UNSURE_BELOW } from '../lib/scanFrame';
+import { cameraSupported } from '../lib/useCamera';
 import { UNITS, type Unit } from '../types';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
@@ -30,6 +32,8 @@ interface Props {
   /** store a newly taken photo in the user's account */
   onSavePhoto: (photo: Blob) => Promise<void>;
   onAdd: (items: NewGrocery[]) => void;
+  /** switch to the camera to scan shelf by shelf (offered when the browser has a camera) */
+  onLiveScan?: () => void;
   onSignIn: () => void;
   onClose: () => void;
 }
@@ -48,9 +52,6 @@ interface Row {
 
 type SaveState = 'saving' | 'saved' | 'failed' | null;
 
-/** Below this detector score a row is marked "Not sure" (OWLv2 keeps boxes from 0.25 up). */
-const UNSURE_BELOW = 0.35;
-
 const isValid = (r: Row) => r.name.trim() !== '' && Number(r.amount) > 0;
 
 const toRows = (items: (ParsedGrocery | DetectedGrocery)[]): Row[] =>
@@ -63,7 +64,7 @@ const toRows = (items: (ParsedGrocery | DetectedGrocery)[]): Row[] =>
     ...('confidence' in it && { detected: it.name, unsure: it.confidence < UNSURE_BELOW }),
   }));
 
-export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, onClose }: Props) {
+export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, onLiveScan, onClose }: Props) {
   const [text, setText] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<'text' | 'photo' | null>(null);
@@ -238,8 +239,15 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
           ) : (
             <>
               <div className="ai-sources">
+                {onLiveScan && cameraSupported() && (
+                  <button className="source-btn" disabled={busy !== null} onClick={onLiveScan}>
+                    <Icon name="camera" size={22} />
+                    <strong>Live scan</strong>
+                    <span>Pan around your fridge</span>
+                  </button>
+                )}
                 <button className="source-btn" disabled={busy !== null} onClick={() => photoInput.current?.click()}>
-                  <Icon name="camera" size={22} />
+                  <Icon name="image" size={22} />
                   <strong>Photo of your groceries</strong>
                   <span>Fridge, shelf or shopping bag</span>
                 </button>
