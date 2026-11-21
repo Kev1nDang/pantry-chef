@@ -25,7 +25,7 @@ Progress:
 - [x] Supabase schema with row level security, plus seed data
 - [x] JWT verification and pantry `GET`/`PUT`
 - [x] Recipe list/detail endpoints
-- [x] Vite dev proxy `/api` → `:8000`
+- [x] Vite dev proxy `/api` → `:8290`
 - [ ] Connect a real Supabase project and verify end to end (login, pantry sync, match, AI routes)
 - [x] Frontend reads recipes from the API (`src/lib/api.ts`; mock dataset removed)
 - [x] Port matching to `POST /api/recipes/match`

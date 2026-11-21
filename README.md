@@ -102,9 +102,9 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173. Recipes come from the API, so start the backend too (below).
+Then open http://localhost:5290. Recipes come from the API, so start the backend too (below). The dev ports are fixed (5290 for the app, 5291 for the phone server, 8290 for the API) and sit outside Vite's default 5173+ range, so other local projects don't collide with them; if one is busy, the server stops instead of moving to another port.
 
-**Sign-in (optional):** copy [`.env.example`](.env.example) to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase dashboard → Project Settings → API). In Supabase → Authentication → URL Configuration, add `http://localhost:5173` to the redirect URLs so magic links come back to the dev server. Without these variables the app runs signed out and the AI features are unavailable.
+**Sign-in (optional):** copy [`.env.example`](.env.example) to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase dashboard → Project Settings → API). In Supabase → Authentication → URL Configuration, set the Site URL to `http://localhost:5290` and add it to the redirect URLs so magic links come back to the dev server. Without these variables the app runs signed out and the AI features are unavailable.
 
 | Script              | What it does                                                   |
 | ------------------- | -------------------------------------------------------------- |
@@ -115,7 +115,7 @@ Then open http://localhost:5173. Recipes come from the API, so start the backend
 | `npm run lint`      | Lint with oxlint                                               |
 | `npm test`          | Unit tests with vitest                                         |
 
-**Trying Live scan on a phone:** browsers only give the camera to secure pages, so `npm run dev:phone` serves the app over HTTPS with a self-signed certificate on your local network. Open the `Network:` address it prints (`https://<your PC's IP>:5173`) on a phone on the same Wi-Fi and accept the certificate warning. To sign in on the phone, add that address to the Supabase redirect URLs too. On plain HTTP the Live scan button falls back to the photo picker.
+**Trying Live scan on a phone:** browsers only give the camera to secure pages, so `npm run dev:phone` serves the app over HTTPS with a self-signed certificate on your local network. Open the `Network:` address it prints (`https://<your PC's IP>:5291`) on a phone on the same Wi-Fi and accept the certificate warning. To sign in on the phone, add that address to the Supabase redirect URLs too. On plain HTTP the Live scan button falls back to the photo picker.
 
 ### Backend
 
@@ -130,12 +130,12 @@ Requires **Python 3.11+** and a [Supabase](https://supabase.com) project.
    .venv/Scripts/activate        # macOS/Linux: source .venv/bin/activate
    pip install -r requirements-dev.txt
    cp .env.example .env          # fill in DATABASE_URL, SUPABASE_URL and ANTHROPIC_API_KEY
-   fastapi dev app/main.py       # http://localhost:8000/docs
+   fastapi dev app/main.py --port 8290   # http://localhost:8290/docs
    ```
 
 3. **Run checks:** `pytest`, `ruff check .` and `ruff format --check .`. Tests fake the database and the Claude API, so they need no secrets or network.
 
-While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8000`. If that port is taken (on Windows, Hyper-V/WSL can reserve it), run the API with `fastapi dev app/main.py --port 8001` and set `API_PROXY_TARGET=http://localhost:8001` in `.env.local`.
+While both servers are running, the Vite dev server forwards `/api/*` to `localhost:8290`. To point it somewhere else, such as a deployed API, set `API_PROXY_TARGET` in `.env.local`.
 
 | Method | Path                | Auth | Purpose                           |
 | ------ | ------------------- | ---- | --------------------------------- |

@@ -12,9 +12,15 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), ...(phone ? [basicSsl()] : [])],
     server: {
       host: phone || undefined,
-      // Forward API calls to the FastAPI dev server (backend/), or to a deployed API such as the
-      // Hugging Face Space. changeOrigin sends the target's Host header, which Spaces route on.
-      proxy: { '/api': { target: env.API_PROXY_TARGET || 'http://localhost:8000', changeOrigin: true } },
+      // Fixed ports outside Vite's default 5173+ range, so this app never trades ports with another
+      // local Vite project. strictPort fails loudly instead of drifting, because Supabase only
+      // sends magic links back to the exact addresses in its redirect list.
+      port: phone ? 5291 : 5290,
+      strictPort: true,
+      // Forward API calls to the FastAPI dev server (backend/, run with --port 8290), or to a
+      // deployed API. changeOrigin sends the target's Host header, which some hosts route on.
+      proxy: { '/api': { target: env.API_PROXY_TARGET || 'http://localhost:8290', changeOrigin: true } },
     },
+    preview: { port: 5290, strictPort: true },
   }
 })

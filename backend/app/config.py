@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     database_url: str = ""
     supabase_url: str = ""
     supabase_jwt_secret: str = ""
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5290"]
 
     # Claude API (AI features). Leave the key empty to disable the AI endpoints (they return 503).
     anthropic_api_key: str = ""

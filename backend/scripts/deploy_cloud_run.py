@@ -176,7 +176,7 @@ def main() -> None:
 
     origins = args.cors_origin or current_origins(project, args.region)
     if origins is None:
-        origins = json.loads(env.get("CORS_ORIGINS", '["http://localhost:5173"]'))
+        origins = json.loads(env.get("CORS_ORIGINS", '["http://localhost:5290"]'))
     variables = {
         "SUPABASE_URL": env["SUPABASE_URL"],
         "CORS_ORIGINS": json.dumps(origins),
