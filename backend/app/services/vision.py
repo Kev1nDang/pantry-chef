@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -49,6 +52,11 @@ CROSS_LABEL_IOU = 0.5  # boxes with different labels overlapping more than this:
 GROUP_MIN_MEMBERS = 2  # a box holding this many smaller boxes' centers is a group, not an item
 GROUP_MEMBER_AREA = 0.5  # ...where "smaller" means at most this fraction of its area
 MAX_ITEMS = 100
+
+# Scans run one at a time per process. Beyond the running one, this many may wait their turn;
+# more are turned away at once (DetectorBusy) instead of queueing toward the host's request
+# timeout: on Cloud Run's 2 vCPUs a scan takes ~11 s, so the 8th of 8 queued would wait ~90 s.
+MAX_WAITING_SCANS = 2
 
 
 # Text query -> pantry name. Several phrasings can point at one name; the name is what the pantry
@@ -168,6 +176,14 @@ class VisionError(Exception):
     """A photo we can't run detection on (unreadable image)."""
 
 
+class DetectorBusy(Exception):
+    """Too many scans already running or waiting in this process; try again shortly."""
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__("The scanner is busy with other photos; try again in a few seconds")
+        self.retry_after = retry_after
+
+
 def available() -> bool:
     """Whether the optional vision dependencies are installed."""
     try:
@@ -212,6 +228,28 @@ class Preprocessing:
         )
 
 
+class ScanGate:
+    """Lets one scan run at a time with up to `waiting` more queued; turns the rest away."""
+
+    def __init__(self, waiting: int = MAX_WAITING_SCANS) -> None:
+        self._slots = threading.BoundedSemaphore(1 + waiting)
+        self._run = threading.Lock()
+        # How long the last scan took: a waiting client's best guess at when to try again.
+        self.last_seconds = 10.0
+
+    @contextmanager
+    def turn(self) -> Iterator[None]:
+        if not self._slots.acquire(blocking=False):
+            raise DetectorBusy(retry_after=max(1, math.ceil(self.last_seconds)))
+        try:
+            with self._run:
+                started = time.perf_counter()
+                yield
+                self.last_seconds = time.perf_counter() - started
+        finally:
+            self._slots.release()
+
+
 class GroceryDetector:
     """An OWL-ViT/OWLv2 ONNX session plus the tokenized grocery vocabulary. Thread-safe to call."""
 
@@ -233,7 +271,7 @@ class GroceryDetector:
         )
         # One photo at a time: a run already uses every core, and two at once would double the
         # ~1.4 GB it needs on top of the model, enough to get a 4 GB container killed.
-        self._run_lock = threading.Lock()
+        self._gate = ScanGate()
 
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         tokenizer.enable_truncation(TEXT_LENGTH)
@@ -279,7 +317,7 @@ class GroceryDetector:
         height, width = bgr.shape[:2]
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        with self._run_lock:
+        with self._gate.turn():
             logits, boxes = self._session.run(
                 ["logits", "pred_boxes"],
                 {
@@ -396,6 +434,18 @@ def cpu_limit() -> int:
 
 _lock = threading.Lock()
 _detectors: dict[tuple[str, str], GroceryDetector] = {}
+_loading: set[tuple[str, str]] = set()
+_failed: set[tuple[str, str]] = set()
+
+
+def load_state(repo: str, model_file: str) -> str:
+    """'ready', 'loading', 'failed' (the last attempt; the next scan retries) or 'not loaded'."""
+    key = (repo, model_file)
+    if key in _detectors:
+        return "ready"
+    if key in _loading:
+        return "loading"
+    return "failed" if key in _failed else "not loaded"
 
 
 def load_detector(repo: str, model_file: str, threads: int = 0) -> GroceryDetector:
@@ -406,15 +456,33 @@ def load_detector(repo: str, model_file: str, threads: int = 0) -> GroceryDetect
     from huggingface_hub import hf_hub_download
 
     key = (repo, model_file)
-    with _lock:
-        if key not in _detectors:
-            model = Path(hf_hub_download(repo, model_file))
-            tokenizer = Path(hf_hub_download(repo, "tokenizer.json"))
-            prep = Preprocessing.from_file(Path(hf_hub_download(repo, "preprocessor_config.json")))
-            threads = threads or cpu_limit()
-            _detectors[key] = GroceryDetector(model, tokenizer, prep, threads)
-            log.info("Grocery detector threads: %s", threads or "ONNX Runtime default")
+    if key in _detectors:
         return _detectors[key]
+    _loading.add(key)
+    try:
+        with _lock:
+            if key not in _detectors:
+                started = time.perf_counter()
+                model = Path(hf_hub_download(repo, model_file))
+                tokenizer = Path(hf_hub_download(repo, "tokenizer.json"))
+                config = Path(hf_hub_download(repo, "preprocessor_config.json"))
+                threads = threads or cpu_limit()
+                detector = GroceryDetector(
+                    model, tokenizer, Preprocessing.from_file(config), threads
+                )
+                _detectors[key] = detector
+                log.info(
+                    "Grocery detector loaded in %.1f s (threads: %s)",
+                    time.perf_counter() - started,
+                    threads or "ONNX Runtime default",
+                )
+            _failed.discard(key)
+            return _detectors[key]
+    except Exception:
+        _failed.add(key)
+        raise
+    finally:
+        _loading.discard(key)
 
 
 def warm_up(repo: str, model_file: str, threads: int = 0) -> None:

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     anthropic_fallbacks: bool = True
     # Per-user cap on AI requests per rolling minute. 0 disables the limit.
     ai_rate_limit_per_minute: int = 10
+    # Per attempt; the SDK retries once (overloaded, 5xx, connection errors, timeouts). Two
+    # attempts must fit the host's request timeout (deploy_cloud_run.py sets 180 s); the SDK's
+    # own default is 10 minutes, so a stuck call used to end in the host's bare 504 instead.
+    anthropic_timeout_seconds: float = 75
 
     # Local grocery detection (POST /api/pantry/detect). Needs requirements-vision.txt; the
     # ONNX model is downloaded from the Hugging Face Hub (cached under HF_HOME) on first use.

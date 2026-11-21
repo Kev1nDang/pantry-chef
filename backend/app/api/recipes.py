@@ -1,23 +1,21 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import Select, select
+from sqlalchemy import select
 
 from app.auth import CurrentUserId
 from app.config import Settings, get_settings
 from app.db import OptionalSessionDep, SessionDep
-from app.models import PantryItem, Recipe
+from app.models import PantryItem
 from app.schemas import GenerateRequest, MatchGrocery, MatchRequest, RecipeMatchOut, RecipeOut
+from app.services import catalog
 from app.services.ai import AIQuotaDep, AnthropicDep, generate_recipe
 from app.services.matching import match_recipe, rank_recipes
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
-
-def _with_tags(stmt: Select[tuple[Recipe]], tags: list[str]) -> Select[tuple[Recipe]]:
-    """Keep recipes tagged with every one of `tags` (Postgres `tags @> array[...]`)."""
-    tags = [t.strip().lower() for t in tags if t.strip()]
-    return stmt.where(Recipe.tags.contains(tags)) if tags else stmt
+# Recipes come from the in-memory catalog (services/catalog.py); the session only connects when
+# the catalog needs (re)loading.
 
 
 @router.get("", response_model=list[RecipeOut])
@@ -26,16 +24,16 @@ def list_recipes(
     q: str | None = None,
     tag: Annotated[list[str], Query()] = [],  # noqa: B006 — FastAPI copies query defaults
 ):
-    stmt = _with_tags(select(Recipe).order_by(Recipe.title), tag)
-    if q:
-        stmt = stmt.where(Recipe.title.ilike(f"%{q}%"))
-    return session.scalars(stmt).all()
+    recipes = catalog.cache.get(session).tagged(tag)
+    if q and (needle := q.strip().lower()):
+        recipes = [r for r in recipes if needle in r.title.lower()]
+    return recipes
 
 
 @router.post("/match", response_model=list[RecipeMatchOut])
 def match_recipes(body: MatchRequest, session: SessionDep):
     """Rank recipes by how much of each one the given groceries cover (best first)."""
-    recipes = session.scalars(_with_tags(select(Recipe).order_by(Recipe.title), body.tags)).all()
+    recipes = catalog.cache.get(session).tagged(body.tags)
     return [
         RecipeMatchOut.model_validate(m, from_attributes=True)
         for m in rank_recipes(recipes, body.pantry)
@@ -76,7 +74,7 @@ def generate(
 
 @router.get("/{recipe_id}", response_model=RecipeOut)
 def get_recipe(recipe_id: str, session: SessionDep):
-    recipe = session.get(Recipe, recipe_id)
+    recipe = catalog.cache.get(session).by_id.get(recipe_id)
     if recipe is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Recipe not found")
     return recipe

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import app
+from app.services import catalog
 from app.services.ratelimit import ai_limiter
 
 TEST_SECRET = "test-secret-that-is-at-least-32-bytes-long"
@@ -35,9 +36,11 @@ def settings() -> Settings:
 def client(settings: Settings):
     app.dependency_overrides[get_settings] = lambda: settings
     ai_limiter.reset()
+    catalog.cache.clear()
     yield TestClient(app)
     app.dependency_overrides.clear()
     ai_limiter.reset()
+    catalog.cache.clear()
 
 
 @pytest.fixture

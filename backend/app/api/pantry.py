@@ -3,12 +3,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from sqlalchemy import delete, select
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth import CurrentUserId, OptionalUserId, unauthorized
 from app.config import Settings, get_settings
 from app.db import OptionalSessionDep, SessionDep
-from app.models import PantryItem, RecipeIngredient
+from app.models import PantryItem
 from app.schemas import (
     DetectedBox,
     DetectedItem,
@@ -25,6 +24,7 @@ from app.services.ai import (
     check_ai_quota,
     parse_grocery_text,
 )
+from app.services.catalog import known_names
 from app.services.documents import MAX_FILE_BYTES, DocumentError, require_image
 from app.services.vision import DetectorDep, VisionError
 
@@ -58,7 +58,7 @@ def parse_pantry_text(
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """Turn a pasted grocery list into items for the user to review (not saved)."""
-    known = _known_names(session)
+    known = known_names(session)
     return ParseResponse(items=parse_grocery_text(client, settings, body.text, known))
 
 
@@ -105,7 +105,7 @@ def detect_pantry_photo(
         raise DocumentError(str(e)) from e
 
     # Use the recipe ingredient name when it's the same food, as the text parser does.
-    known = _known_names(session)
+    known = known_names(session)
     names = {d.name: canonical_name(d.name, known) for d in result.detections}
 
     # Two detector names can map onto one recipe ingredient; add their counts up.
@@ -130,12 +130,3 @@ def detect_pantry_photo(
         height=result.height,
         seconds=round(result.seconds, 2),
     )
-
-
-def _known_names(session) -> list[str]:
-    if session is None:
-        return []
-    try:
-        return list(session.scalars(select(RecipeIngredient.name).distinct()).all())
-    except SQLAlchemyError:
-        return []  # Name normalization is a nice-to-have; parse without it.

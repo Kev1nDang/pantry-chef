@@ -42,9 +42,12 @@ class AIError(Exception):
         self.status_code = status_code
 
 
+MAX_RETRIES = 1
+
+
 @lru_cache
-def _client(api_key: str) -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=api_key)
+def _client(api_key: str, timeout: float) -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=MAX_RETRIES)
 
 
 def get_anthropic_client(
@@ -55,7 +58,7 @@ def get_anthropic_client(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "AI features are disabled: ANTHROPIC_API_KEY is not configured on the server",
         )
-    return _client(settings.anthropic_api_key)
+    return _client(settings.anthropic_api_key, settings.anthropic_timeout_seconds)
 
 
 AnthropicDep = Annotated[anthropic.Anthropic, Depends(get_anthropic_client)]
@@ -116,6 +119,10 @@ def _call(
         raise AIError("The AI service rejected the server's ANTHROPIC_API_KEY") from e
     except anthropic.APIStatusError as e:
         raise AIError(f"The AI service returned an error ({e.status_code})") from e
+    except anthropic.APITimeoutError as e:  # a subclass of APIConnectionError
+        raise AIError(
+            "The AI took too long to answer; please try again", status.HTTP_504_GATEWAY_TIMEOUT
+        ) from e
     except anthropic.APIConnectionError as e:
         raise AIError("Couldn't reach the AI service") from e
 

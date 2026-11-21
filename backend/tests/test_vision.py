@@ -4,6 +4,8 @@ The model itself never runs here (that's scripts/eval_vision.py); the endpoint u
 """
 
 import json
+import threading
+import time
 
 import pytest
 
@@ -302,3 +304,65 @@ def test_cpu_limit(monkeypatch, cores, affinity, quota, threads):
     )
     monkeypatch.setattr(vision, "_cgroup_cpus", lambda: quota)
     assert vision.cpu_limit() == threads
+
+
+# --- load shedding: one scan runs, a few wait, the rest are turned away --------------------------
+
+
+def test_scan_gate_admits_one_running_and_a_few_waiting():
+    gate = vision.ScanGate(waiting=2)
+    gate.last_seconds = 10.4
+    release = threading.Event()
+
+    def scan():
+        with gate.turn():
+            release.wait(5)
+
+    threads = [threading.Thread(target=scan) for _ in range(3)]  # 1 running + 2 waiting
+    for t in threads:
+        t.start()
+    deadline = time.monotonic() + 5
+    while gate._slots._value > 0 and time.monotonic() < deadline:  # all three have their slot
+        time.sleep(0.01)
+    try:
+        with pytest.raises(vision.DetectorBusy) as busy, gate.turn():
+            pass
+        assert busy.value.retry_after == 11  # the last scan's time, rounded up
+    finally:
+        release.set()
+        for t in threads:
+            t.join(5)
+
+    with gate.turn():  # once they're done there's room again
+        pass
+
+
+def test_scan_gate_frees_its_slot_when_a_scan_fails():
+    gate = vision.ScanGate(waiting=0)
+    with pytest.raises(VisionError), gate.turn():
+        raise VisionError("bad photo")
+    with gate.turn():
+        pass
+
+
+def test_busy_scanner_answers_429_with_retry_after(client, auth_headers):
+    use_fake(FakeDetector(error=vision.DetectorBusy(retry_after=11)))
+    res = upload(client, auth_headers)
+    assert res.status_code == 429
+    assert res.headers["Retry-After"] == "11"
+    assert "busy" in res.json()["detail"]
+
+
+def test_load_state(monkeypatch):
+    key = ("repo", "model.onnx")
+    monkeypatch.setattr(vision, "_detectors", {})
+    monkeypatch.setattr(vision, "_loading", set())
+    monkeypatch.setattr(vision, "_failed", set())
+    assert vision.load_state(*key) == "not loaded"
+    vision._loading.add(key)
+    assert vision.load_state(*key) == "loading"
+    vision._loading.clear()
+    vision._failed.add(key)
+    assert vision.load_state(*key) == "failed"
+    vision._detectors[key] = object()
+    assert vision.load_state(*key) == "ready"

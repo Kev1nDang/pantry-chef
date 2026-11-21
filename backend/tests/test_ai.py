@@ -16,7 +16,7 @@ from app.services.ai import (
     get_anthropic_client,
 )
 from tests.conftest import make_token
-from tests.fakes import FakeAnthropic, FakeSession
+from tests.fakes import FakeAnthropic, FakeSession, recipe
 
 PARSED = _GroceryList(
     items=[
@@ -60,7 +60,9 @@ def use_fake(fake: FakeAnthropic) -> FakeAnthropic:
 
 
 def use_known_names(names: list[str]) -> None:
-    app.dependency_overrides[get_optional_session] = lambda: FakeSession(names)
+    """Known names come from the recipe catalog: one recipe using each of `names`."""
+    rows = [recipe("known", [(n, 1, "pcs") for n in names])]
+    app.dependency_overrides[get_optional_session] = lambda: FakeSession(rows)
 
 
 # --- Auth and configuration ------------------------------------------------------------------

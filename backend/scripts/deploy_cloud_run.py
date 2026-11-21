@@ -10,6 +10,12 @@ Secret Manager, and only the service's own service account can read them. SUPABA
 CORS_ORIGINS are plain environment variables. `--cors-origin` (repeatable) sets the web app
 origins; without it a redeploy keeps the service's current ones. Re-running is safe: secrets get a
 new version only when their value changed.
+
+The default region, us-west1 (Oregon), sits next to the Supabase database (AWS us-west-2,
+Oregon). Every API request that touches the database makes 4-5 round trips to it, so an API
+across the country (us-east1, the first deploys) spent ~0.3 s per request just on the distance.
+A new region is a new service with its own URL; delete the old one afterwards with
+`gcloud run services delete pantry-chef-api --region us-east1`.
 """
 
 import argparse
@@ -41,10 +47,13 @@ CLEANUP_POLICY = [
     {"name": "delete-older", "action": {"type": "Delete"}, "condition": {"tagState": "any"}},
 ]
 # A scan takes ~1.75 GB at its peak and every core while it runs; scans queue one at a time per
-# instance (GroceryDetector's lock), so 4 GiB leaves room for the other requests.
+# instance (vision.ScanGate, which turns away a 4th), so 4 GiB leaves room for other requests.
 CPUS = "2"
 RESOURCES = ["--cpu", CPUS, "--memory", "4Gi", "--cpu-boost", "--concurrency", "8"]
-SCALING = ["--min-instances", "0", "--max-instances", "2", "--timeout", "120"]
+# 180 s: two attempts at a Claude call (ANTHROPIC_TIMEOUT_SECONDS, 75 s each) plus the SDK's retry
+# backoff. Scans and everything else finish far sooner.
+SCALING = ["--min-instances", "0", "--max-instances", "2", "--timeout", "180"]
+DEFAULT_REGION = "us-west1"
 
 # Terminals opened before the install don't have gcloud on PATH yet; try the default location too.
 _WINDOWS_GCLOUD = (
@@ -133,6 +142,21 @@ def put_secret(project: str, name: str, value: str, reader: str) -> None:
         time.sleep(5)
 
 
+def source_version() -> str:
+    """The checked-out commit, e.g. "6088c8f" or "6088c8f-dirty"; "unknown" outside git."""
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args], cwd=BACKEND, capture_output=True, text=True, check=False
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    sha = git("rev-parse", "--short", "HEAD")
+    if not sha:
+        return "unknown"
+    return f"{sha}-dirty" if git("status", "--porcelain", "--", ".") else sha
+
+
 def current_origins(project: str, region: str) -> list[str] | None:
     """The CORS_ORIGINS the deployed service has now, or None before the first deploy."""
     described = gcloud(
@@ -150,7 +174,9 @@ def current_origins(project: str, region: str) -> list[str] | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("--project", help="Google Cloud project ID (default: gcloud's current one)")
-    parser.add_argument("--region", default="us-east1", help="Cloud Run region (default: us-east1)")
+    parser.add_argument(
+        "--region", default=DEFAULT_REGION, help=f"Cloud Run region (default: {DEFAULT_REGION})"
+    )
     parser.add_argument("--cors-origin", action="append", default=[], help="web app origin")
     args = parser.parse_args()
 
@@ -185,6 +211,10 @@ def main() -> None:
         # One ONNX Runtime thread per vCPU. Its default follows the host's cores, which
         # oversubscribes the container (about 2x slower per scan on 2 cores).
         "VISION_THREADS": CPUS,
+        # Links the API's JSON log lines to each request's trace in Cloud Logging.
+        "GOOGLE_CLOUD_PROJECT": project,
+        # Which commit is live: /api/health reports it (with "-dirty" for uncommitted changes).
+        "APP_VERSION": source_version(),
     }
 
     step(f"Building and deploying {SERVICE} to {args.region} (the first build takes ~5 minutes)")
