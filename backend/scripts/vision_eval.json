@@ -3,7 +3,7 @@
   "photos": [
     {
       "file": "eggs6.jpg",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/6-Pack-Chicken-Eggs.jpg/1280px-6-Pack-Chicken-Eggs.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/12/6-Pack-Chicken-Eggs.jpg/1280px-6-Pack-Chicken-Eggs.jpg",
       "license": "Public domain",
       "expect": {"egg": 6}
     },
@@ -15,7 +15,7 @@
     },
     {
       "file": "fruitbowl.jpg",
-      "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Apples_and_bananas_in_bowl.jpg/1280px-Apples_and_bananas_in_bowl.jpg",
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/38/Apples_and_bananas_in_bowl.jpg/1280px-Apples_and_bananas_in_bowl.jpg",
       "license": "Public domain",
       "expect": {"apple": [5, 8], "banana": 2}
     },
