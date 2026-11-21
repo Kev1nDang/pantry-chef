@@ -139,7 +139,7 @@ While both servers are running, the Vite dev server forwards `/api/*` to `localh
 
 | Method | Path                | Auth | Purpose                           |
 | ------ | ------------------- | ---- | --------------------------------- |
-| GET    | `/api/health`       |      | API and database status           |
+| GET    | `/api/health`       |      | API, database and photo scanner status, plus the running version. The web app calls it on load to wake the API |
 | GET    | `/api/recipes`      |      | List recipes (`?q=` searches titles, `?tag=vegan` filters, repeatable) |
 | GET    | `/api/recipes/{id}` |      | Recipe detail                     |
 | POST   | `/api/recipes/match` |     | Body `{pantry, tags?}` → ranked matches |
@@ -160,14 +160,16 @@ Authenticated routes expect a Supabase access token in the `Authorization: Beare
 ```
 backend/
 ├── app/
-│   ├── main.py             # FastAPI app, CORS, routers
+│   ├── main.py             # FastAPI app, CORS, routers, error mapping
+│   ├── observability.py    # Request ids, Server-Timing, access log, JSON logs on Cloud Run
 │   ├── config.py           # Settings from env / .env
-│   ├── db.py               # SQLAlchemy engine + session dependency
+│   ├── db.py               # SQLAlchemy engine (pool sized for Supabase) + session dependency
 │   ├── auth.py             # Supabase JWT verification (JWKS or legacy HS256)
 │   ├── models.py           # ORM mappings
 │   ├── schemas.py          # Pydantic models (mirror src/types.ts, camelCase on the wire)
 │   ├── api/                # health, recipes (list/detail/match/generate), pantry (+ parse)
 │   └── services/
+│       ├── catalog.py      # Recipes cached in memory (reloaded every 5 min, kept through DB outages)
 │       ├── matching.py     # Recipe scoring/ranking
 │       ├── units.py        # Unit conversion
 │       ├── ai.py           # All Claude calls: pasted-list parsing, recipe generation
@@ -203,7 +205,9 @@ src/
 │   ├── api.ts              # Typed API client
 │   ├── supabase.ts         # Supabase client (null when not configured)
 │   ├── useSession.ts       # Current Supabase session
-│   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry
+│   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry (retries, one save at a time)
+│   ├── pantrySync.ts       # The signed-in list's local copy and which list wins on load (unit-tested)
+│   ├── warmup.ts           # Wakes the API when the app opens
 │   ├── usePhotos.ts        # Saved photos in Supabase Storage
 │   ├── image.ts            # Shrink and re-encode photos (and camera frames) before upload
 │   ├── useCamera.ts        # Back camera stream, released when the page is hidden
@@ -228,12 +232,14 @@ The API runs on [Cloud Run](https://cloud.google.com/run), which runs a containe
    - builds the image with Cloud Build (no local Docker needed; [`backend/.gcloudignore`](backend/.gcloudignore) keeps `.env` and the tests out of the upload);
    - deploys the `pantry-chef-api` service (scales from 0 to 2 instances) and prints its URL, `https://pantry-chef-api-<id>.<region>.run.app`.
 
-   `--cors-origin https://your-app.vercel.app` (repeatable) sets the web app origins. Re-running the script redeploys.
+   `--cors-origin https://your-app.vercel.app` (repeatable) sets the web app origins. Re-running the script redeploys. The default region is `us-west1` (Oregon), next to the Supabase database in AWS `us-west-2`: each request that reads the database makes 4–5 round trips to it, so distance adds up. Use `--region` to put it next to your own database.
 4. Point the web app at the API:
    - For local development, set `API_PROXY_TARGET=<API URL>` in `.env.local`. The Vite dev server then forwards `/api` to Cloud Run, so no CORS setup is needed.
    - For a production build, set `VITE_API_URL` to the same URL.
 
-The first build takes about 5 minutes. After about 15 minutes without requests the service scales to zero. The next request then waits about 25 seconds while a new instance starts and loads the model. After that, requests take about 0.3 s, and a photo scan takes about 19–25 s on the 2 vCPUs.
+The first build takes about 5 minutes. After about 15 minutes without requests the service scales to zero. The next request then waits about 25 seconds while a new instance starts and loads the model; the web app pings `/api/health` as soon as it opens, so that wait usually passes while the visitor looks around, and a signed-in visitor sees the pantry this browser saved last time without waiting for it. After that, requests take about 0.3 s, and a photo scan takes about 19–25 s on the 2 vCPUs. Each instance runs one scan at a time with two more waiting; a fourth gets `429` with `Retry-After` at once instead of queueing toward the request timeout.
+
+Logs are JSON lines that Cloud Logging reads as structured entries: one per request with its method, path, status and milliseconds, and a request id that's also returned as `X-Request-ID`. Responses carry `Server-Timing`, so the browser's network panel shows how much of a slow request was the API.
 
 **Hugging Face Space instead.** The same image runs as a [Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker) (2 vCPUs, 16 GB), but Docker Spaces need a Hugging Face PRO subscription. With one, `hf auth login` and then `python scripts/deploy_space.py --secrets-from-env` creates `<your account>/pantry-chef-api` and uploads the image sources and the Space page ([`backend/space/README.md`](backend/space/README.md)).
 
