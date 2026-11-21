@@ -12,8 +12,6 @@ import { StatTiles, type Stat } from './StatTiles';
 interface Props {
   groceries: GroceryItem[];
   syncError: string | null;
-  /** AI features (and saving photos) need an account */
-  signedIn: boolean;
   photos: SavedPhoto[];
   photosError: string | null;
   /** recipes matched so far, and how many are ready to cook; null while loading */
@@ -48,10 +46,10 @@ export function PantryView(props: Props) {
   const q = query.trim().toLowerCase();
   const shown = q ? groceries.filter((g) => g.name.toLowerCase().includes(q)) : groceries;
 
-  // Signed in, go straight to the photo picker; signed out, the dialog explains why to sign in.
-  const upload = () => (props.signedIn ? photoInput.current?.click() : props.onAddWithAI());
+  // Scanning works signed out too (photos are only saved to an account when signed in).
+  const upload = () => photoInput.current?.click();
   // The camera needs HTTPS and a browser that offers it; otherwise the photo picker does the job.
-  const scan = () => (props.signedIn && cameraSupported() ? props.onLiveScan() : upload());
+  const scan = () => (cameraSupported() ? props.onLiveScan() : upload());
 
   function taken(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

@@ -1,10 +1,11 @@
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.auth import CurrentUserId
+from app.auth import CurrentUserId, OptionalUserId, unauthorized
 from app.config import Settings, get_settings
 from app.db import OptionalSessionDep, SessionDep
 from app.models import PantryItem, RecipeIngredient
@@ -17,7 +18,13 @@ from app.schemas import (
     ParseRequest,
     ParseResponse,
 )
-from app.services.ai import AIQuotaDep, AnthropicDep, canonical_name, parse_grocery_text
+from app.services.ai import (
+    AIQuotaDep,
+    AnthropicDep,
+    canonical_name,
+    check_ai_quota,
+    parse_grocery_text,
+)
 from app.services.documents import MAX_FILE_BYTES, DocumentError, require_image
 from app.services.vision import DetectorDep, VisionError
 
@@ -55,13 +62,34 @@ def parse_pantry_text(
     return ParseResponse(items=parse_grocery_text(client, settings, body.text, known))
 
 
-# Dependency order: auth (401) -> detector installed and loaded (503) -> per-user rate limit (429).
+def get_scanner(
+    user_id: OptionalUserId, settings: Annotated[Settings, Depends(get_settings)]
+) -> uuid.UUID | None:
+    """Scanning needs an account, unless GUEST_SCAN lets signed-out visitors scan too (None)."""
+    if user_id is None and not settings.guest_scan:
+        raise unauthorized("Sign in to scan photos")
+    return user_id
+
+
+ScannerDep = Annotated[uuid.UUID | None, Depends(get_scanner)]
+
+
+def require_scan_quota(
+    request: Request, user_id: ScannerDep, settings: Annotated[Settings, Depends(get_settings)]
+) -> None:
+    """The AI budget, per user; guests get one per client address. Behind a proxy that doesn't
+    forward it (the Vite dev server), that's the proxy's address, so all guests share one."""
+    host = request.client.host if request.client else "unknown"
+    check_ai_quota(str(user_id) if user_id else f"guest:{host}", settings)
+
+
+# Dependency order: auth (401) -> detector installed and loaded (503) -> rate limit (429).
 @router.post("/detect", response_model=DetectResponse)
 def detect_pantry_photo(
     file: Annotated[UploadFile, File(description="A photo of groceries (JPEG/PNG/WebP/GIF)")],
-    _user_id: CurrentUserId,
+    _user_id: ScannerDep,
     detector: DetectorDep,
-    _quota: AIQuotaDep,
+    _quota: Annotated[None, Depends(require_scan_quota)],
     session: OptionalSessionDep,
 ):
     """

@@ -180,7 +180,6 @@ export default function App() {
           <PantryView
             groceries={groceries}
             syncError={syncError}
-            signedIn={token !== null}
             photos={photoStore.photos}
             photosError={photoStore.error}
             recipeCounts={loading ? null : { total: matches.length, ready: readyCount }}
@@ -287,22 +286,25 @@ export default function App() {
         <AddWithAIDialog
           token={token}
           initial={dialog.initial}
-          onSavePhoto={photoStore.save}
+          onSavePhoto={token ? photoStore.save : undefined}
           onAdd={addGroceries}
           onLiveScan={() => setDialog({ kind: 'scan' })}
           onSignIn={() => setDialog({ kind: 'signin' })}
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog?.kind === 'scan' && token && (
+      {dialog?.kind === 'scan' && (
         <Suspense fallback={null}>
           <LiveScan
             token={token}
             onAdd={addGroceries}
-            onSavePhoto={(photo) =>
-              photoStore.save(photo).catch(() => {
-                showToast('Your items were added, but a scanned photo couldn’t be saved.');
-              })
+            onSavePhoto={
+              token
+                ? (photo) =>
+                    photoStore.save(photo).catch(() => {
+                      showToast('Your items were added, but a scanned photo couldn’t be saved.');
+                    })
+                : undefined
             }
             onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
             onClose={() => setDialog(null)}

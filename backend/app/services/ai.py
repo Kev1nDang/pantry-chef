@@ -61,17 +61,22 @@ def get_anthropic_client(
 AnthropicDep = Annotated[anthropic.Anthropic, Depends(get_anthropic_client)]
 
 
-def require_ai_quota(
-    user_id: CurrentUserId, settings: Annotated[Settings, Depends(get_settings)]
-) -> uuid.UUID:
-    """AI routes need a signed-in user, and each user gets a per-minute request budget."""
+def check_ai_quota(key: str, settings: Settings) -> None:
+    """Spend one request from `key`'s per-minute budget; 429 when it's used up."""
     limit = settings.ai_rate_limit_per_minute
-    if limit > 0 and (retry_after := ai_limiter.hit(str(user_id), limit)) is not None:
+    if limit > 0 and (retry_after := ai_limiter.hit(key, limit)) is not None:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many AI requests; please wait a moment and try again",
             {"Retry-After": str(max(1, round(retry_after)))},
         )
+
+
+def require_ai_quota(
+    user_id: CurrentUserId, settings: Annotated[Settings, Depends(get_settings)]
+) -> uuid.UUID:
+    """AI routes need a signed-in user, and each user gets a per-minute request budget."""
+    check_ai_quota(str(user_id), settings)
     return user_id
 
 

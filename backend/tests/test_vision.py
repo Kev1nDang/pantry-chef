@@ -173,6 +173,31 @@ def test_detect_requires_auth(client):
     assert fake.calls == []
 
 
+def test_detect_lets_guests_scan_when_guest_scan_is_on(client, settings):
+    settings.guest_scan = True
+    fake = use_fake(FakeDetector(SIX_EGGS_AND_A_BANANA))
+    res = upload(client, {})
+    assert res.status_code == 200
+    assert res.json()["items"][0] == {"name": "egg", "amount": 6, "unit": "pcs", "confidence": 0.6}
+    assert fake.calls == [JPEG]
+
+
+def test_guest_scan_still_rejects_bad_tokens(client, settings):
+    settings.guest_scan = True
+    fake = use_fake(FakeDetector(SIX_EGGS_AND_A_BANANA))
+    assert upload(client, {"Authorization": "Bearer not-a-jwt"}).status_code == 401
+    assert fake.calls == []
+
+
+def test_guest_scans_have_their_own_rate_limit(client, settings, auth_headers):
+    settings.guest_scan = True
+    settings.ai_rate_limit_per_minute = 1
+    use_fake(FakeDetector(SIX_EGGS_AND_A_BANANA))
+    assert upload(client, {}).status_code == 200
+    assert upload(client, {}).status_code == 429
+    assert upload(client, auth_headers).status_code == 200  # a signed-in user's budget is separate
+
+
 def test_detect_counts_groceries(client, auth_headers):
     fake = use_fake(FakeDetector(SIX_EGGS_AND_A_BANANA))
     res = upload(client, auth_headers)

@@ -26,11 +26,12 @@ export interface InitialUpload {
 }
 
 interface Props {
-  /** null when signed out — AI reading needs an account */
+  /** null when signed out: photos can still be scanned (where the server allows guests), but
+   * pasted lists are read by Claude and need an account */
   token: string | null;
   initial?: InitialUpload;
-  /** store a newly taken photo in the user's account */
-  onSavePhoto: (photo: Blob) => Promise<void>;
+  /** store a newly taken photo in the user's account; absent when signed out (nothing is saved) */
+  onSavePhoto?: (photo: Blob) => Promise<void>;
   onAdd: (items: NewGrocery[]) => void;
   /** switch to the camera to scan shelf by shelf (offered when the browser has a camera) */
   onLiveScan?: () => void;
@@ -100,7 +101,6 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
 
   /** Count the groceries in a photo of the food itself, with the server's local detector only. */
   async function readPhoto(file: Blob, name: string, alreadySaved = false) {
-    if (!token) return;
     setError(null);
     setNote(null);
     setSaveState(null);
@@ -115,7 +115,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
       const photo = await preparePhoto(file);
       const photoName = `${name.replace(/\.[^.]*$/, '') || 'photo'}.jpg`;
       setPreview(URL.createObjectURL(photo));
-      if (!alreadySaved) {
+      if (onSavePhoto && !alreadySaved) {
         // Saving runs alongside detection; a failed save doesn't stop the items from coming back.
         setSaveState('saving');
         onSavePhoto(photo).then(
@@ -225,14 +225,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
         </p>
       </header>
 
-      {!token ? (
-        <div className="banner banner-action">
-          <span>Sign in to add groceries with AI. It’s free and only takes an email.</span>
-          <button className="btn btn-primary" onClick={onSignIn}>
-            Sign in
-          </button>
-        </div>
-      ) : rows === null ? (
+      {rows === null ? (
         <>
           {busy && preview ? (
             photoPanel
@@ -258,15 +251,24 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
               <div className="divider">
                 <span>or paste a list</span>
               </div>
-              <textarea
-                className="paste-input"
-                rows={6}
-                maxLength={5000}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={'2 lb chicken breast\n1 dozen eggs\nbananas 1.2kg\nmilk 2L'}
-                aria-label="Grocery list"
-              />
+              {token ? (
+                <textarea
+                  className="paste-input"
+                  rows={6}
+                  maxLength={5000}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder={'2 lb chicken breast\n1 dozen eggs\nbananas 1.2kg\nmilk 2L'}
+                  aria-label="Grocery list"
+                />
+              ) : (
+                <div className="banner banner-action">
+                  <span>Sign in to have AI read a pasted list. It’s free and only takes an email.</span>
+                  <button className="btn btn-primary" onClick={onSignIn}>
+                    Sign in
+                  </button>
+                </div>
+              )}
             </>
           )}
           {error && (
@@ -278,7 +280,7 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
             <button className="btn btn-ghost" onClick={onClose}>
               Cancel
             </button>
-            {!(busy && preview) && (
+            {token && !(busy && preview) && (
               <button className="btn btn-primary" disabled={!text.trim() || busy !== null} onClick={parseText}>
                 {busy === 'text' ? 'Reading…' : 'Read text'}
               </button>

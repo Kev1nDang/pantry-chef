@@ -115,7 +115,7 @@ Then open http://localhost:5290. Recipes come from the API, so start the backend
 | `npm run lint`      | Lint with oxlint                                               |
 | `npm test`          | Unit tests with vitest                                         |
 
-**Trying Live scan on a phone:** browsers only give the camera to secure pages, so `npm run dev:phone` serves the app over HTTPS with a self-signed certificate on your local network. Open the `Network:` address it prints (`https://<your PC's IP>:5291`) on a phone on the same Wi-Fi and accept the certificate warning. To sign in on the phone, add that address to the Supabase redirect URLs too. On plain HTTP the Live scan button falls back to the photo picker.
+**Trying Live scan on a phone:** browsers only give the camera to secure pages, so `npm run dev:phone` serves the app over HTTPS with a self-signed certificate on your local network. Open the `Network:` address it prints (`https://<your PC's IP>:5291`) on a phone on the same Wi-Fi and accept the certificate warning. To sign in on the phone, add that address to the Supabase redirect URLs too. To scan without signing in, set `GUEST_SCAN=true` in `backend/.env`: signed-out visitors can then use Live scan and Upload photo (the detector is local, so it costs nothing), but their photos aren't saved and the Claude features still need an account. Leave it off on a public server. On plain HTTP the Live scan button falls back to the photo picker.
 
 ### Backend
 

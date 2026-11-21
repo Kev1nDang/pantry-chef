@@ -23,10 +23,11 @@ import { Icon } from './Icon';
 import { ScanBoxes } from './ScanBoxes';
 
 interface Props {
-  token: string;
+  /** null when signed out: scanning still works where the server allows guests */
+  token: string | null;
   onAdd: (items: NewGrocery[]) => void;
-  /** store a scanned shot that items were added from */
-  onSavePhoto: (photo: Blob) => Promise<void>;
+  /** store a scanned shot that items were added from; absent when signed out (nothing is saved) */
+  onSavePhoto?: (photo: Blob) => Promise<void>;
   /** read a photo from the library with the regular photo flow instead */
   onPhoto: (file: File) => void;
   onClose: () => void;
@@ -270,7 +271,7 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
     if (tray.length === 0) return;
     onAdd(trayToGroceries(tray));
     for (const photo of [...kept.current, ...(hasAdded(shot) ? [shot.photo] : [])]) {
-      onSavePhoto(photo).catch(() => {}); // the caller reports failures; the items are in either way
+      onSavePhoto?.(photo).catch(() => {}); // the caller reports failures; the items are in either way
     }
     kept.current = [];
   }

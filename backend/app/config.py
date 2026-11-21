@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # ONNX Runtime threads for the detector. 0 = the CPUs this process is limited to (container
     # CPU quota or CPU affinity), or ONNX Runtime's own default when it may use the whole machine.
     vision_threads: int = 0
+    # Let signed-out visitors scan photos too (the detector is local, so it costs no API credits).
+    # Meant for trying the camera on a phone in local development; leave it off on a public server.
+    guest_scan: bool = False
 
     @property
     def sqlalchemy_url(self) -> str:

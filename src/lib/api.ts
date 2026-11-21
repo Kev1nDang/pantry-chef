@@ -120,11 +120,12 @@ export interface DetectedPhoto {
 /**
  * Count the foods in a photo with the server's local detector (Hugging Face OWLv2 run with
  * ONNX Runtime + OpenCV): free, no LLM. Throws ApiError 503 when the server doesn't have it.
+ * `token` is null when signed out: servers with GUEST_SCAN on accept that, others answer 401.
  */
-export function detectGroceries(token: string, photo: Blob, name: string, signal?: AbortSignal) {
+export function detectGroceries(token: string | null, photo: Blob, name: string, signal?: AbortSignal) {
   const form = new FormData();
   form.append('file', photo, name);
-  return request<DetectedPhoto>('/pantry/detect', { method: 'POST', form, token, signal });
+  return request<DetectedPhoto>('/pantry/detect', { method: 'POST', form, token: token ?? undefined, signal });
 }
 
 export interface GenerateOptions {

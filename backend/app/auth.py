@@ -36,22 +36,23 @@ def decode_supabase_jwt(token: str, settings: Settings) -> dict[str, Any]:
     return jwt.decode(token, key, algorithms=algorithms, audience="authenticated")
 
 
+def unauthorized(detail: str = "Invalid or missing token") -> HTTPException:
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, detail, {"WWW-Authenticate": "Bearer"})
+
+
 def get_current_claims(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     """The verified token's claims; `sub` is guaranteed to be a valid UUID."""
-    unauthorized = HTTPException(
-        status.HTTP_401_UNAUTHORIZED, "Invalid or missing token", {"WWW-Authenticate": "Bearer"}
-    )
     if creds is None:
-        raise unauthorized
+        raise unauthorized()
     try:
         claims = decode_supabase_jwt(creds.credentials, settings)
         uuid.UUID(claims["sub"])
         return claims
     except (jwt.PyJWTError, KeyError, ValueError, TypeError) as e:
-        raise unauthorized from e
+        raise unauthorized() from e
 
 
 CurrentClaims = Annotated[dict[str, Any], Depends(get_current_claims)]
@@ -62,3 +63,16 @@ def get_current_user_id(claims: CurrentClaims) -> uuid.UUID:
 
 
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
+
+
+def get_optional_user_id(
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> uuid.UUID | None:
+    """The signed-in user's id, or None when no token was sent. A token that fails checks is 401."""
+    if creds is None:
+        return None
+    return get_current_user_id(get_current_claims(creds, settings))
+
+
+OptionalUserId = Annotated[uuid.UUID | None, Depends(get_optional_user_id)]
