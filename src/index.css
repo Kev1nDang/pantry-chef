@@ -652,6 +652,12 @@ button { -webkit-tap-highlight-color: transparent; }
   .welcome { padding: 28px 16px 14px; }
   .welcome h2 { font-size: 1.3rem; }
   .ways-row .way-text span { display: none; }
+  /* Four ways don't fit in one row on a phone: a 2×2 grid of icon-and-label tiles instead. */
+  .ways:has(> .way:nth-child(4)) { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ways:has(> .way:nth-child(4)) .way { flex-direction: row; justify-content: flex-start; gap: 10px; padding: 10px; text-align: left; }
+  .ways:has(> .way:nth-child(4)) .way-icon { width: 36px; height: 36px; }
+  .ways:has(> .way:nth-child(4)) .way-text { align-items: flex-start; }
+  .ways:has(> .way:nth-child(4)) .way-text strong { white-space: normal; line-height: 1.25; }
   .how { grid-template-columns: 1fr; gap: 8px; }
 
   .filters .search { flex-basis: 100%; }

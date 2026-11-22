@@ -69,7 +69,7 @@ export function PantryView(props: Props) {
   const ways: Way[] = [
     ...(cameraSupported() ? [{ key: 'scan', icon: 'camera', label: 'Live scan', hint: 'Point your camera at a shelf' } as const] : []),
     ...(cameraSupported()
-      ? [{ key: 'livecam', icon: 'camera', label: 'Live camera', hint: 'Tap groceries as you pan around' } as const]
+      ? [{ key: 'livecam', icon: 'focus', label: 'Live camera', hint: 'Tap groceries as you pan around' } as const]
       : []),
     { key: 'photo', icon: 'image', label: 'Upload photo', hint: 'Fridge, shelf or shopping bag' },
     { key: 'paste', icon: 'paste', label: 'Paste a list', hint: 'From your notes or a message' },
