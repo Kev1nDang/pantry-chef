@@ -30,6 +30,8 @@ Progress:
 - [x] Frontend reads recipes from the API (`src/lib/api.ts`; mock dataset removed)
 - [x] Port matching to `POST /api/recipes/match`
 - [x] Frontend login with `supabase-js` (email magic link) and pantry sync
+- [x] Google sign-in (Supabase OAuth) with an account menu; the shopping list syncs to the account too (`/api/shopping`)
+- [ ] Turn on the Google provider in Supabase and add the deployed site to its redirect URLs (README → Sign-in)
 - [x] Paste-a-list: `POST /api/pantry/parse` plus a review UI
 - [x] CI for the backend (ruff + pytest)
 - [x] AI recipe generation: `POST /api/recipes/generate` plus "Cook something from my pantry"
@@ -68,8 +70,8 @@ Likely a relational database (Postgres).
 
 ## Phase 3: Accounts & sync
 
-- Authentication (OAuth, or a hosted provider such as Clerk, Auth0 or Supabase)
-- Sync the pantry across devices
+- [x] Authentication: Supabase Auth with Google OAuth and email magic links
+- [x] Sync the pantry and shopping list across devices
 
 ## Phase 4: Infrastructure
 

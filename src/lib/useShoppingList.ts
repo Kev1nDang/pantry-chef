@@ -1,63 +1,45 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { Unit } from '../types';
+import { useCallback } from 'react';
+import type { NewShoppingItem, ShoppingItem } from '../types';
+import { getShoppingList, saveShoppingList } from './api';
+import { shoppingRules } from './listSync';
+import { useSyncedList, type SyncedListConfig } from './useSyncedList';
 
-const STORAGE_KEY = 'pantry-chef:shopping';
+export type { NewShoppingItem, ShoppingItem } from '../types';
 
-export interface ShoppingItem {
-  id: string;
-  name: string;
-  amount: number;
-  unit: Unit;
-  checked: boolean;
-  /** recipe titles this item was added for */
-  for: string[];
-}
+const SHOPPING: SyncedListConfig<ShoppingItem> = {
+  storageKey: 'pantry-chef:shopping',
+  rules: shoppingRules,
+  load: getShoppingList,
+  save: saveShoppingList,
+  label: 'shopping list',
+};
 
-export type NewShoppingItem = Pick<ShoppingItem, 'name' | 'amount' | 'unit'>;
-
-function load(): ShoppingItem[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ShoppingItem[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** The shopping list. It lives in this browser only. */
-export function useShoppingList() {
-  const [items, setItems] = useState<ShoppingItem[]>(load);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      /* storage unavailable — keep working in memory */
-    }
-  }, [items]);
+/** The shopping list: in this browser while signed out, saved to the account while signed in. */
+export function useShoppingList(userId: string | null, token: string | null) {
+  const { items, setItems, status, error } = useSyncedList(SHOPPING, userId, token);
 
   /** Add items for a recipe; an item already on the list (same name and unit) is merged, not repeated. */
-  const add = useCallback((added: NewShoppingItem[], recipe?: string) => {
-    setItems((prev) =>
-      added.reduce((list, item) => {
-        const existing = list.find(
-          (s) => !s.checked && s.name.toLowerCase() === item.name.toLowerCase() && s.unit === item.unit,
-        );
-        if (existing) {
-          if (recipe && existing.for.includes(recipe)) return list;
-          return list.map((s) =>
-            s === existing
-              ? { ...s, amount: s.amount + item.amount, for: recipe ? [...s.for, recipe] : s.for }
-              : s,
+  const add = useCallback(
+    (added: NewShoppingItem[], recipe?: string) => {
+      setItems((prev) =>
+        added.reduce((list, item) => {
+          const existing = list.find(
+            (s) => !s.checked && s.name.toLowerCase() === item.name.toLowerCase() && s.unit === item.unit,
           );
-        }
-        return [
-          ...list,
-          { ...item, id: crypto.randomUUID(), checked: false, for: recipe ? [recipe] : [] },
-        ];
-      }, prev),
-    );
-  }, []);
+          if (existing) {
+            if (recipe && existing.for.includes(recipe)) return list;
+            return list.map((s) =>
+              s === existing
+                ? { ...s, amount: s.amount + item.amount, for: recipe ? [...s.for, recipe] : s.for }
+                : s,
+            );
+          }
+          return [...list, { ...item, id: crypto.randomUUID(), checked: false, for: recipe ? [recipe] : [] }];
+        }, prev),
+      );
+    },
+    [setItems],
+  );
 
-  return { items, setItems, add };
+  return { items, setItems, add, status, error };
 }

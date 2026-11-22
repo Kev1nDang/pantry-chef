@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
-from app.api import account, health, pantry, recipes
+from app.api import account, health, pantry, recipes, shopping
 from app.config import get_settings
 from app.observability import RequestContextMiddleware, configure_logging
 from app.services import vision
@@ -89,3 +89,4 @@ app.include_router(health.router)
 app.include_router(account.router)
 app.include_router(recipes.router)
 app.include_router(pantry.router)
+app.include_router(shopping.router)

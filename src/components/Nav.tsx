@@ -1,7 +1,4 @@
-import type { Session } from '@supabase/supabase-js';
 import type { ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
-import type { SyncStatus } from '../lib/usePantry';
 import { Icon, type IconName } from './Icon';
 
 export type View = 'pantry' | 'recipes' | 'shopping';
@@ -70,52 +67,5 @@ export function TabBar({ view, onNavigate, counts }: NavProps) {
         </button>
       ))}
     </nav>
-  );
-}
-
-const SYNC_LABEL: Record<SyncStatus, string> = {
-  local: 'Saved on this device',
-  loading: 'Loading pantry…',
-  saving: 'Saving…',
-  synced: 'Synced to your account',
-  error: 'Sync problem',
-};
-
-interface AccountProps {
-  session: Session | null;
-  syncStatus: SyncStatus;
-  onSignIn: () => void;
-}
-
-/** Sign in, or who is signed in and whether their pantry is synced. */
-export function Account({ session, syncStatus, onSignIn }: AccountProps) {
-  if (!supabase) {
-    return (
-      <span className="account-local" title="Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable sign-in">
-        <Icon name="cloud" size={16} />
-        <span className="account-local-text">Saved on this device</span>
-      </span>
-    );
-  }
-  if (!session) {
-    return (
-      <button className="btn btn-secondary btn-sm" onClick={onSignIn}>
-        <Icon name="user" size={16} /> Sign in
-      </button>
-    );
-  }
-  const email = session.user.email ?? '';
-  return (
-    <div className="account">
-      <span className={`avatar sync-${syncStatus}`} title={`${email} · ${SYNC_LABEL[syncStatus]}`}>
-        {(email || '?').charAt(0).toUpperCase()}
-      </span>
-      <span className="sr-only">
-        Signed in as {email}. {SYNC_LABEL[syncStatus]}.
-      </span>
-      <button className="btn-icon" aria-label="Sign out" title="Sign out" onClick={() => supabase!.auth.signOut()}>
-        <Icon name="logout" size={18} />
-      </button>
-    </div>
   );
 }

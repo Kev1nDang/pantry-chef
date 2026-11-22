@@ -55,7 +55,7 @@ export function CookDialog({ token, onSignIn, groceries, onCooked, onClose }: Pr
 
       {!token ? (
         <div className="banner banner-action">
-          <span>Sign in to generate recipes with AI. It’s free and only takes an email.</span>
+          <span>Sign in to generate recipes with AI. It’s free: continue with Google or your email.</span>
           <button className="btn btn-primary" onClick={onSignIn}>
             Sign in
           </button>

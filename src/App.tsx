@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { AccountMenu } from './components/AccountMenu';
 import { AddWithAIDialog, type InitialUpload } from './components/AddWithAIDialog';
 import { CookDialog } from './components/CookDialog';
 import { PantryView } from './components/PantryView';
@@ -6,14 +7,15 @@ import { PhotoViewer } from './components/PhotoViewer';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipesView, type Filter } from './components/RecipesView';
 import { ShoppingView } from './components/ShoppingView';
-import { Account, TabBar, TopBar, type View } from './components/Nav';
+import { TabBar, TopBar, type View } from './components/Nav';
 import { SignInDialog } from './components/SignInDialog';
 import { ToastBar } from './components/ToastBar';
 import { matchRecipes, messageOf, type NewGrocery } from './lib/api';
+import { useAuth, useAuthNotices } from './lib/auth';
 import { usePantry } from './lib/usePantry';
 import { usePhotos, type SavedPhoto } from './lib/usePhotos';
-import { useSession } from './lib/useSession';
 import { useShoppingList } from './lib/useShoppingList';
+import { overallStatus } from './lib/useSyncedList';
 import { useToast } from './lib/useToast';
 import type { GroceryItem, RecipeIngredient, RecipeMatch } from './types';
 
@@ -58,15 +60,14 @@ function addTo(list: GroceryItem[], item: NewGrocery): GroceryItem[] {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export default function App() {
-  const session = useSession();
+  const { session, userId, ready } = useAuth();
   const token = session?.access_token ?? null;
-  const { groceries, setGroceries, status: syncStatus, error: syncError } = usePantry(
-    session?.user.id ?? null,
-    token,
-  );
-  const photoStore = usePhotos(session?.user.id ?? null);
-  const shopping = useShoppingList();
+  const { groceries, setGroceries, status: pantryStatus, error: syncError } = usePantry(userId, token);
+  const photoStore = usePhotos(userId);
+  const shopping = useShoppingList(userId, token);
+  const syncStatus = overallStatus(pantryStatus, shopping.status);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  useAuthNotices(session, showToast);
 
   const [view, setView] = useState<View>(() => (groceries.length > 0 ? 'recipes' : 'pantry'));
   const [filter, setFilter] = useState<Filter>('all');
@@ -171,7 +172,12 @@ export default function App() {
         onNavigate={navigate}
         counts={counts}
         account={
-          <Account session={session} syncStatus={syncStatus} onSignIn={() => setDialog({ kind: 'signin' })} />
+          <AccountMenu
+            session={session}
+            ready={ready}
+            syncStatus={syncStatus}
+            onSignIn={() => setDialog({ kind: 'signin' })}
+          />
         }
       />
 

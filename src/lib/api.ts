@@ -1,4 +1,4 @@
-import type { GroceryItem, RecipeMatch, Unit } from '../types';
+import type { GroceryItem, RecipeMatch, ShoppingItem, Unit } from '../types';
 
 const BASE = `${import.meta.env.VITE_API_URL ?? ''}/api`;
 
@@ -78,6 +78,22 @@ export function getPantry(token: string) {
 
 export function savePantry(token: string, items: GroceryItem[]) {
   return request<GroceryItem[]>('/pantry', { method: 'PUT', body: items.map(stripId), token });
+}
+
+export function getShoppingList(token: string) {
+  return request<ShoppingItem[]>('/shopping', { token });
+}
+
+/** Replace the saved shopping list. Recipe notes are trimmed to what the server accepts. */
+export function saveShoppingList(token: string, items: ShoppingItem[]) {
+  const body = items.map(({ name, amount, unit, checked, for: recipes }) => ({
+    name,
+    amount,
+    unit,
+    checked,
+    for: recipes.slice(0, 20).map((title) => title.slice(0, 200)),
+  }));
+  return request<ShoppingItem[]>('/shopping', { method: 'PUT', body, token });
 }
 
 export interface ParsedGrocery {

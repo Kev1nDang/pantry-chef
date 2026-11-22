@@ -1,7 +1,7 @@
 """Request/response shapes. Mirrors src/types.ts on the frontend (camelCase on the wire)."""
 
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -42,6 +42,21 @@ class GroceryItemIn(ApiModel):
 
 
 class GroceryItemOut(GroceryItemIn):
+    id: uuid.UUID
+
+
+class ShoppingItemIn(ApiModel):
+    name: str = Field(min_length=1, max_length=100)
+    amount: float = Field(gt=0)
+    unit: Unit
+    checked: bool = False
+    # `for` on the wire (the web app's field name); a Python keyword, hence the alias.
+    recipes: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, alias="for", max_length=20
+    )
+
+
+class ShoppingItemOut(ShoppingItemIn):
     id: uuid.UUID
 
 

@@ -9,7 +9,7 @@ Pantry Chef suggests recipes based on the groceries you have. Enter what's in yo
 - **Full-stack app:**
   - The frontend is React 19 and TypeScript.
   - The API is FastAPI with SQLAlchemy, on Supabase Postgres with row level security.
-  - Sign-in uses Supabase Auth, and the API checks every login token itself (ES256 signatures, verified against Supabase's published keys).
+  - Sign in with Google (or an emailed magic link) through Supabase Auth. The pantry and shopping list are saved to the account and follow you to any browser, and the API checks every login token itself (ES256 signatures, verified against Supabase's published keys).
 - **Computer vision instead of a paid LLM:**
   - Grocery photos are counted by [OWLv2](https://huggingface.co/google/owlv2-base-patch16-ensemble), an open-vocabulary detector from the Hugging Face Hub.
   - It runs as an int8 ONNX model on the CPU with ONNX Runtime, with OpenCV and NumPy preparing the image. That means no per-photo API cost and no PyTorch.
@@ -64,9 +64,9 @@ flowchart LR
   - Optional ingredients count for less.
 - **Ranked results** with a coverage meter, search, **Ready now** / **Almost there** tabs and dietary chips (vegetarian, vegan, …).
 - **Recipe detail view:** each ingredient is labelled Have, Low or Need. A servings stepper scales quantities, and you can tick off steps as you cook. **Add missing items to shopping list** sends what you lack to your list. **I cooked this** takes the ingredients you used out of your pantry.
-- **Shopping list:** to-buy and in-cart sections with a progress bar. **Put away in pantry** moves bought items back into your pantry. The list is stored in this browser.
+- **Shopping list:** to-buy and in-cart sections with a progress bar. **Put away in pantry** moves bought items back into your pantry. Signed in, the list is saved to your account like the pantry.
 - **Undo** for removing items, clearing the pantry and cooking, plus smooth view, card and list animations (turned off under reduced-motion settings).
-- **Accounts and sync:** sign in with an email magic link (Supabase Auth) and your pantry is saved to the API. Signed out, it's stored in `localStorage`.
+- **Accounts and sync:** **Continue with Google** (or get an emailed magic link) and your pantry and shopping list are saved to your account. Sign in with the same Google account on any phone or computer and they're there. The first sign-in creates the account and brings along what you added while signed out. Signed out, both lists are stored in `localStorage`. Each browser also keeps a copy of your lists, so they show at once while a sleeping API wakes up, and changes made offline are sent later. The avatar menu shows who's signed in, how, and whether everything is saved. Signing out only signs out that device.
 - **Smart features (signed-in users):**
   - **Live scan:** open the camera and pan around your fridge. Hold the phone still on a shelf (or tap the shutter) and the view freezes while the detector reads it. Each food gets a **green box with its name on top**: tap one to check the name and count, then add it to a tray. Keep scanning shelf by shelf, then add the whole tray to your pantry in one go. The same shelf isn't scanned twice in a row, and boxes the detector isn't sure about are dashed amber. See [Live scan](#live-scan).
   - **Upload photo:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) **counts the food it sees**: "6 eggs, 3 bananas, 2 milk". Every count is in pieces, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights what was counted on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
@@ -103,7 +103,13 @@ npm run dev
 
 Then open http://localhost:5290. Recipes come from the API, so start the backend too (below). The dev ports are fixed (5290 for the app, 5291 for the phone server, 8290 for the API) and sit outside Vite's default 5173+ range, so other local projects don't collide with them; if one is busy, the server stops instead of moving to another port.
 
-**Sign-in (optional):** copy [`.env.example`](.env.example) to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase dashboard → Project Settings → API). In Supabase → Authentication → URL Configuration, set the Site URL to `http://localhost:5290` and add it to the redirect URLs so magic links come back to the dev server. Without these variables the app runs signed out and the AI features are unavailable.
+**Sign-in (optional):** copy [`.env.example`](.env.example) to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (Supabase dashboard → Project Settings → API; Supabase's Connect panel calls the key `VITE_SUPABASE_PUBLISHABLE_KEY`, and either name works). Without these variables the app runs signed out and the AI features are unavailable. Email magic links work as soon as the redirect URLs below are set. Google sign-in needs a one-time setup:
+
+1. **Google OAuth client.** In the [Google Cloud console](https://console.cloud.google.com/auth/overview), open Google Auth Platform. Under **Branding**, fill in the app name and support email. Under **Audience**, choose External and press **Publish app**: while it's in Testing, only the test users you list can sign in. The app asks only for the basic `openid`, `email` and `profile` scopes, which need no Google verification. Under **Clients**, create a **Web application** client and add `https://<project-ref>.supabase.co/auth/v1/callback` as an **Authorized redirect URI** (Supabase shows the exact URL on its Google provider page).
+2. **Supabase provider.** Supabase → Authentication → Sign In / Providers → **Google**: turn it on, paste the client ID and client secret, and save. Until then the app hides its Google button (it reads the project's public auth settings), and the dev build says how to turn it on.
+3. **Redirect URLs.** Supabase → Authentication → URL Configuration: set the Site URL to your main address (`http://localhost:5290` in development, the deployed site later), and add every address the app is opened from to the Redirect URLs: `http://localhost:5290`, the phone server's `https://<your PC's IP>:5291` (or the pattern `https://10.0.0.*:*`), and the deployed site. A sign-in returns to the address it started from; an address that isn't listed sends people to the Site URL instead.
+
+An account is an email address. Signing in with Google using the same email as a magic-link account reaches the same account and the same groceries, because Supabase links the two automatically.
 
 | Script              | What it does                                                   |
 | ------------------- | -------------------------------------------------------------- |
@@ -145,6 +151,8 @@ While both servers are running, the Vite dev server forwards `/api/*` to `localh
 | POST   | `/api/recipes/generate` | ✓ AI | Body `{pantry?, dietary?, maxMinutes?, servings?}` → an AI-generated recipe, matched against the pantry |
 | GET    | `/api/pantry`       | ✓    | The signed-in user's groceries    |
 | PUT    | `/api/pantry`       | ✓    | Replace the user's grocery list   |
+| GET    | `/api/shopping`     | ✓    | The signed-in user's shopping list, in order |
+| PUT    | `/api/shopping`     | ✓    | Replace the user's shopping list (`{name, amount, unit, checked, for}` items; `for` holds recipe titles) |
 | POST   | `/api/pantry/parse` | ✓ AI | Body `{text}` → parsed items to review (nothing is saved) |
 | POST   | `/api/pantry/detect` | ✓    | Multipart `file`: a photo → the foods counted by the local detector (amounts in `pcs`, each with a `confidence`), plus the boxes behind the counts. No LLM |
 
@@ -166,7 +174,7 @@ backend/
 │   ├── auth.py             # Supabase JWT verification (JWKS or legacy HS256)
 │   ├── models.py           # ORM mappings
 │   ├── schemas.py          # Pydantic models (mirror src/types.ts, camelCase on the wire)
-│   ├── api/                # health, recipes (list/detail/match/generate), pantry (+ parse)
+│   ├── api/                # health, recipes (list/detail/match/generate), pantry (+ parse), shopping
 │   └── services/
 │       ├── catalog.py      # Recipes cached in memory (reloaded every 5 min, kept through DB outages)
 │       ├── matching.py     # Recipe scoring/ranking
@@ -177,13 +185,14 @@ backend/
 │       └── ratelimit.py    # Per-user limit for AI routes
 └── tests/                  # pytest; fakes for the DB session and Anthropic client
 supabase/
-├── migrations/             # SQL schema (source of truth), row level security, photo bucket
+├── migrations/             # SQL schema (source of truth), row level security, photo bucket, shopping list
 └── seed.sql                # Seed recipes
 src/
 ├── App.tsx                 # App shell: navigation, recipe matching requests, dialogs, toasts
 ├── components/
 │   ├── Nav.tsx             # Top bar (desktop nav + account slot) and bottom TabBar for phones
-│   ├── SignInDialog.tsx    # Magic-link sign-in
+│   ├── SignInDialog.tsx    # Continue with Google, or an emailed magic link
+│   ├── AccountMenu.tsx     # Top bar account slot: Sign in, or avatar → who, how, sync status, Sign out
 │   ├── PantryView.tsx      # Pantry page: add box, ways to add, list, recipe suggestion, welcome
 │   ├── RecipesView.tsx     # Recipes page: search, tabs, diet chips, card grid
 │   ├── ShoppingView.tsx    # Shopping list page
@@ -201,16 +210,18 @@ src/
 │   └── Modal.tsx           # Shared dialog shell (bottom sheet on mobile)
 ├── lib/
 │   ├── api.ts              # Typed API client
-│   ├── supabase.ts         # Supabase client (null when not configured)
-│   ├── useSession.ts       # Current Supabase session
-│   ├── usePantry.ts        # Grocery list: localStorage or synced to /api/pantry (retries, one save at a time)
-│   ├── pantrySync.ts       # The signed-in list's local copy and which list wins on load (unit-tested)
+│   ├── supabase.ts         # Supabase client (null when not configured), sign-in redirect capture
+│   ├── auth.ts             # Google / magic-link sign-in, sign-out, useAuth, post-redirect toasts
+│   ├── authInfo.ts         # Redirect parsing, friendly errors, in-app browser check, profile (unit-tested)
+│   ├── useSyncedList.ts    # A list in localStorage, or synced to the account (retries, one save at a time)
+│   ├── listSync.ts         # The signed-in list's local copy and which list wins on load (unit-tested)
+│   ├── usePantry.ts        # Grocery list → useSyncedList with /api/pantry
 │   ├── warmup.ts           # Wakes the API when the app opens
 │   ├── usePhotos.ts        # Saved photos in Supabase Storage
 │   ├── image.ts            # Shrink and re-encode photos (and camera frames) before upload
 │   ├── useCamera.ts        # Back camera stream, released when the page is hidden
 │   ├── scanFrame.ts        # Live scan logic: cover crop, hold-still detector, tray (unit-tested)
-│   ├── useShoppingList.ts  # Shopping list in localStorage
+│   ├── useShoppingList.ts  # Shopping list → useSyncedList with /api/shopping
 │   ├── useToast.ts         # Single toast with auto-dismiss
 │   ├── quickAdd.ts         # Parse "6 eggs, 500 g flour, milk 2 l" into items (unit-tested)
 │   ├── foodEmoji.ts        # Grocery name → emoji

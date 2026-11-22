@@ -1,0 +1,86 @@
+/* Sign-in dialog and the account menu in the top bar. Built on the design tokens in index.css. */
+
+/* ───────── Sign-in dialog ───────── */
+/* Google's button colours (sign-in branding guidelines): neutral, with the four-colour G. */
+.google-btn {
+  background: #fff; color: #1f1f1f; border-color: #747775; font-weight: 600;
+  box-shadow: 0 1px 2px rgb(60 64 67 / 0.12);
+}
+.google-btn:hover:not(:disabled) { background: #f8faff; box-shadow: 0 1px 3px rgb(60 64 67 / 0.25); }
+@media (prefers-color-scheme: dark) {
+  .google-btn { background: #131314; color: #e3e3e3; border-color: #8e918f; box-shadow: none; }
+  .google-btn:hover:not(:disabled) { background: #1f2020; }
+}
+.google-btn svg { flex-shrink: 0; }
+
+.signin-embedded { font-size: 0.84rem; }
+.signin-copy { display: flex; margin-top: 10px; height: 34px; }
+.signin-fineprint { margin: 0; text-align: center; font-size: 0.76rem; color: var(--muted); line-height: 1.45; }
+
+/* ───────── Account corner ───────── */
+.acct { position: relative; }
+
+.acct-off { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
+@media (max-width: 760px) { .acct-off-text { display: none; } }
+
+.acct-pending {
+  display: block; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-3);
+  animation: acct-pulse 1.2s ease-in-out infinite;
+}
+
+
+.acct-trigger {
+  position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; height: 40px; padding: 2px;
+  border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; text-align: left;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.acct-trigger:hover { box-shadow: 0 0 0 4px var(--surface-2); }
+.acct-trigger[aria-expanded='true'] { box-shadow: 0 0 0 4px var(--accent-soft); }
+
+.acct-avatar {
+  display: grid; place-items: center; flex-shrink: 0; border-radius: 50%; object-fit: cover; font-weight: 700;
+  background: var(--surface-3);
+}
+.acct-avatar-letter { background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #0bb)); color: #fff; }
+/* Sync dot on the avatar: saved, saving, or a problem. */
+.acct-dot {
+  position: absolute; right: 1px; bottom: 1px; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--bg); background: var(--muted);
+}
+.acct-dot-synced { background: var(--ready); }
+.acct-dot-saving, .acct-dot-loading { background: var(--close); animation: acct-pulse 1s ease-in-out infinite; }
+.acct-dot-error { background: var(--far); }
+
+.acct-panel {
+  position: absolute; z-index: 40; top: calc(100% + 10px); right: 0; width: min(320px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 14px; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  transform-origin: top right; animation: acct-in 0.18s var(--ease);
+}
+.acct-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.acct-who { display: flex; flex-direction: column; min-width: 0; }
+.acct-who strong { font-size: 0.98rem; }
+.acct-who span { font-size: 0.84rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.acct-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 12px; border-radius: 12px; background: var(--surface-2); }
+.acct-facts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.acct-facts dt { font-size: 0.78rem; color: var(--muted); }
+.acct-facts dd { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0; font-size: 0.84rem; font-weight: 600; }
+.acct-provider { display: inline-flex; align-items: center; gap: 5px; }
+
+.acct-hint { margin: 0; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+
+.acct-sync { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.acct-sync::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.acct-facts .acct-sync { font-size: 0.84rem; }
+.acct-sync-synced { color: var(--ready); }
+.acct-sync-saving, .acct-sync-loading { color: var(--close); }
+.acct-sync-saving::before, .acct-sync-loading::before { animation: acct-pulse 1s ease-in-out infinite; }
+.acct-sync-error { color: var(--far); }
+
+@keyframes acct-in { from { opacity: 0; transform: scale(0.96) translateY(-4px); } }
+@keyframes acct-pulse { 50% { opacity: 0.45; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .acct-panel, .acct-pending, .acct-dot, .acct-sync::before { animation: none !important; }
+}

@@ -9,6 +9,19 @@ export interface GroceryItem {
   unit: Unit;
 }
 
+/** An item on the shopping list. */
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  amount: number;
+  unit: Unit;
+  checked: boolean;
+  /** recipe titles this item was added for */
+  for: string[];
+}
+
+export type NewShoppingItem = Pick<ShoppingItem, 'name' | 'amount' | 'unit'>;
+
 export interface RecipeIngredient {
   name: string;
   amount: number;
