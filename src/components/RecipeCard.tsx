@@ -21,34 +21,32 @@ export function RecipeCard({ match, onOpen }: Props) {
 
   return (
     <button className={`recipe-card level-${level}`} onClick={onOpen}>
-      <div className="recipe-banner">
-        <span className="recipe-emoji" aria-hidden>
-          {recipe.emoji}
-        </span>
-        <span className="status-pill">
-          {level === 'ready' && <Icon name="check" size={12} />}
+      <span className="recipe-banner" aria-hidden>
+        <span className="recipe-emoji">{recipe.emoji}</span>
+      </span>
+      <span className="recipe-body">
+        <span className="status">
+          {level === 'ready' ? <Icon name="check" size={12} /> : <span className="status-dot" />}
           {STATUS_TEXT[level]}
         </span>
-      </div>
-      <div className="recipe-body">
-        <h3>{recipe.title}</h3>
-        <p className="recipe-meta">
+        <span className="recipe-title">{recipe.title}</span>
+        <span className="recipe-meta">
           <span>
             <Icon name="clock" size={14} /> {recipe.minutes} min
           </span>
           <span>
             <Icon name="users" size={14} /> Serves {recipe.servings}
           </span>
-        </p>
-        <div className="meter-row">
-          <div className="meter" aria-label={`${pct}% of ingredients covered`}>
-            <div className="meter-fill" style={{ width: `${pct}%` }} />
-          </div>
+        </span>
+        <span className="meter-row">
+          <span className="meter" aria-label={`${pct}% of ingredients covered`}>
+            <span className="meter-fill" style={{ width: `${pct}%` }} />
+          </span>
           <span className="pct">
             {have}/{checks.length}
           </span>
-        </div>
-        <p className="recipe-need">
+        </span>
+        <span className="recipe-need">
           {missing.length > 0 ? (
             <>
               <strong>Need:</strong> {missing.join(', ')}
@@ -60,8 +58,8 @@ export function RecipeCard({ match, onOpen }: Props) {
           ) : (
             'You have everything you need'
           )}
-        </p>
-      </div>
+        </span>
+      </span>
     </button>
   );
 }

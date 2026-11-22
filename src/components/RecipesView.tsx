@@ -47,15 +47,32 @@ export function RecipesView(props: Props) {
     setQuery('');
   }
 
+  const header = (
+    <header className="view-header">
+      <div>
+        <h1>
+          Recipes {loading && pantryCount > 0 && <span className="spinner" aria-label="Loading recipes" />}
+        </h1>
+        <p className="muted">
+          {pantryCount === 0
+            ? 'Matched to what’s in your pantry.'
+            : `Matched to your ${pantryCount} item${pantryCount === 1 ? '' : 's'}, best first.`}
+        </p>
+      </div>
+      {pantryCount > 0 && (
+        <div className="view-actions">
+          <button className="btn btn-ai" onClick={props.onCook}>
+            <Icon name="sparkles" size={16} /> Create with AI
+          </button>
+        </div>
+      )}
+    </header>
+  );
+
   if (pantryCount === 0) {
     return (
       <div className="view">
-        <header className="view-header">
-          <div>
-            <h1>Recipes</h1>
-            <p className="muted">Recipes are matched to what’s in your pantry.</p>
-          </div>
-        </header>
+        {header}
         <div className="empty-state card">
           <div className="empty-emoji" aria-hidden>
             🧺
@@ -74,23 +91,9 @@ export function RecipesView(props: Props) {
 
   return (
     <div className="view">
-      <header className="view-header">
-        <div>
-          <h1>
-            Recipes {loading && <span className="spinner" aria-label="Loading recipes" />}
-          </h1>
-          <p className="muted">
-            Matched to the {pantryCount} item{pantryCount === 1 ? '' : 's'} in your pantry, best first.
-          </p>
-        </div>
-        <div className="view-actions">
-          <button className="btn btn-ai" onClick={props.onCook}>
-            <Icon name="sparkles" size={16} /> Create with AI
-          </button>
-        </div>
-      </header>
+      {header}
 
-      <div className="toolbar">
+      <div className="filters">
         <label className="search">
           <Icon name="search" size={16} />
           <input
@@ -101,12 +104,11 @@ export function RecipesView(props: Props) {
             aria-label="Search recipes"
           />
         </label>
-        <div className="segmented" role="tablist" aria-label="Show">
+        <div className="segmented" role="group" aria-label="Show">
           {FILTERS.map((f) => (
             <button
               key={f.value}
-              role="tab"
-              aria-selected={filter === f.value}
+              aria-pressed={filter === f.value}
               className={filter === f.value ? 'active' : ''}
               onClick={() => props.onFilter(f.value)}
             >
@@ -117,8 +119,8 @@ export function RecipesView(props: Props) {
         </div>
       </div>
 
-      <div className="chips" role="group" aria-label="Diet">
-        <button className={`chip ${diet === '' ? 'active' : ''}`} onClick={() => props.onDiet('')}>
+      <div className="chips chips-scroll" role="group" aria-label="Diet">
+        <button className={`chip ${diet === '' ? 'active' : ''}`} aria-pressed={diet === ''} onClick={() => props.onDiet('')}>
           Any diet
         </button>
         {DIETS.map((d) => (
@@ -185,7 +187,7 @@ export function RecipesView(props: Props) {
           </div>
           <div className="ai-promo">
             <span className="ai-promo-icon" aria-hidden>
-              <Icon name="sparkles" size={22} />
+              <Icon name="sparkles" size={20} />
             </span>
             <div>
               <strong>Nothing quite right?</strong>

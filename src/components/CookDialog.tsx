@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { generateRecipe, messageOf } from '../lib/api';
 import type { GroceryItem, RecipeMatch } from '../types';
+import { Icon } from './Icon';
 import { Modal } from './Modal';
 
 const DIETS = ['vegetarian', 'vegan', 'gluten-free', 'dairy-free'];
@@ -108,7 +109,15 @@ export function CookDialog({ token, onSignIn, groceries, onCooked, onClose }: Pr
               Cancel
             </button>
             <button type="submit" className={`btn btn-ai ${loading ? 'is-loading' : ''}`} disabled={loading}>
-              {loading ? 'Cooking up a recipe…' : '✨ Generate recipe'}
+              {loading ? (
+                <>
+                  <span className="spinner spinner-light" aria-hidden /> Cooking up a recipe…
+                </>
+              ) : (
+                <>
+                  <Icon name="sparkles" size={16} /> Generate recipe
+                </>
+              )}
             </button>
           </div>
         </form>

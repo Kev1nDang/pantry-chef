@@ -30,22 +30,24 @@ export function ShoppingView({ items, onAdd, onToggle, onRemove, onStock, onGoRe
   const row = (item: ShoppingItem) => (
     <li key={item.id} className={`shop-item ${item.checked ? 'checked' : ''}`}>
       <button
-        className="checkbox"
+        className="shop-toggle"
         role="checkbox"
         aria-checked={item.checked}
         aria-label={`${item.checked ? 'Unmark' : 'Mark'} ${item.name} as bought`}
         onClick={() => onToggle(item.id)}
       >
-        <Icon name="check" size={14} />
+        <span className="checkbox" aria-hidden>
+          <Icon name="check" size={14} />
+        </span>
+        <span className="grocery-emoji" aria-hidden>
+          {foodEmoji(item.name)}
+        </span>
+        <span className="shop-text">
+          <span className="shop-name">{item.name}</span>
+          {item.for.length > 0 && <small>For {item.for.join(', ')}</small>}
+        </span>
+        <span className="shop-qty">{formatAmount(item.amount, item.unit)}</span>
       </button>
-      <span className="grocery-emoji" aria-hidden>
-        {foodEmoji(item.name)}
-      </span>
-      <span className="shop-text">
-        <span className="shop-name">{item.name}</span>
-        {item.for.length > 0 && <small>For {item.for.join(', ')}</small>}
-      </span>
-      <span className="shop-qty">{formatAmount(item.amount, item.unit)}</span>
       <button className="btn-icon btn-remove" aria-label={`Remove ${item.name}`} onClick={() => onRemove(item)}>
         <Icon name="trash" size={16} />
       </button>
@@ -53,7 +55,7 @@ export function ShoppingView({ items, onAdd, onToggle, onRemove, onStock, onGoRe
   );
 
   return (
-    <div className="view">
+    <div className="view view-narrow">
       <header className="view-header">
         <div>
           <h1>Shopping list</h1>
@@ -63,30 +65,26 @@ export function ShoppingView({ items, onAdd, onToggle, onRemove, onStock, onGoRe
               : `${toBuy.length} to buy · ${bought.length} in the cart`}
           </p>
         </div>
-        {bought.length > 0 && (
-          <div className="view-actions">
-            <button className="btn btn-primary" onClick={onStock}>
-              <Icon name="pantry" size={16} /> Put {bought.length} away in pantry
-            </button>
-          </div>
-        )}
       </header>
 
-      <form className="quick-add quick-add-simple" onSubmit={submit}>
-        <label className="quick-add-name">
-          <Icon name="plus" size={18} />
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Add something to buy"
-            aria-label="Item to buy"
-            maxLength={100}
-            autoComplete="off"
-          />
-        </label>
-        <button type="submit" className="btn btn-primary" disabled={!name.trim()}>
-          Add
-        </button>
+      <form className="card add-card quick-add" onSubmit={submit}>
+        <div className="quick-add-row">
+          <label className="quick-add-field">
+            <Icon name="plus" size={18} />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Add something to buy"
+              aria-label="Item to buy"
+              maxLength={100}
+              autoComplete="off"
+              enterKeyHint="done"
+            />
+          </label>
+          <button type="submit" className="btn btn-primary" disabled={!name.trim()}>
+            Add
+          </button>
+        </div>
       </form>
 
       {items.length === 0 ? (
@@ -95,7 +93,7 @@ export function ShoppingView({ items, onAdd, onToggle, onRemove, onStock, onGoRe
             📝
           </div>
           <h3>Your list is empty</h3>
-          <p>Open a recipe and tap “Add missing items to shopping list” — or add things above.</p>
+          <p>Open a recipe and tap “Add missing items to shopping list”, or add things above.</p>
           <div className="empty-actions">
             <button className="btn btn-secondary" onClick={onGoRecipes}>
               Browse recipes <Icon name="arrow" size={16} />
@@ -104,29 +102,35 @@ export function ShoppingView({ items, onAdd, onToggle, onRemove, onStock, onGoRe
         </div>
       ) : (
         <>
-          <div className="progress-card card">
+          <div className={`card progress-card${bought.length > 0 ? ' has-action' : ''}`}>
             <div className="progress-text">
               <strong>{pct === 100 ? 'All done! 🎉' : `${bought.length} of ${items.length} bought`}</strong>
-              <span className="muted">
-                {pct === 100 ? 'Put everything away in your pantry.' : 'Tick items off as you shop.'}
-              </span>
+              <div className="meter meter-lg">
+                <div className="meter-fill" style={{ width: `${pct}%` }} />
+              </div>
             </div>
-            <div className="meter meter-lg">
-              <div className="meter-fill" style={{ width: `${pct}%` }} />
-            </div>
+            {bought.length > 0 ? (
+              <button className="btn btn-primary" onClick={onStock}>
+                <Icon name="pantry" size={16} /> Put {bought.length} away in pantry
+              </button>
+            ) : (
+              <span className="muted">Tick items off as you shop.</span>
+            )}
           </div>
-          {toBuy.length > 0 && (
-            <section className="card list-card">
-              <h2 className="list-title">To buy</h2>
-              <ul className="shop-list">{toBuy.map(row)}</ul>
-            </section>
-          )}
-          {bought.length > 0 && (
-            <section className="card list-card">
-              <h2 className="list-title">In the cart</h2>
-              <ul className="shop-list">{bought.map(row)}</ul>
-            </section>
-          )}
+          <section className="card list-card">
+            {toBuy.length > 0 && (
+              <>
+                <h2 className="list-title">To buy</h2>
+                <ul className="shop-list">{toBuy.map(row)}</ul>
+              </>
+            )}
+            {bought.length > 0 && (
+              <>
+                <h2 className="list-title">In the cart</h2>
+                <ul className="shop-list">{bought.map(row)}</ul>
+              </>
+            )}
+          </section>
         </>
       )}
     </div>

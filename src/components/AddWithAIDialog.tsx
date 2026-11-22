@@ -218,10 +218,10 @@ export function AddWithAIDialog({ token, initial, onSavePhoto, onSignIn, onAdd, 
   return (
     <Modal labelledBy="ai-add-title" onClose={onClose}>
       <header>
-        <h2 id="ai-add-title">Add with AI</h2>
-        <p className="recipe-meta">
-          Snap your fridge, a shelf or your shopping bag, and the food in it is counted for you to review
-          before adding. Or paste a list.
+        <h2 id="ai-add-title">Add from a photo or list</h2>
+        <p className="muted">
+          Snap your fridge, a shelf or your shopping bag and we’ll count the food for you to check. Or paste a
+          list.
         </p>
       </header>
 

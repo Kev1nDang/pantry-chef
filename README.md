@@ -55,9 +55,8 @@ flowchart LR
 
 ## Features
 
-- **Three-step flow:** **Pantry → Recipes → Shopping list**, with a sidebar on desktop and a bottom tab bar on mobile. Each step shows a live count.
-
-- **Grocery input with amounts and units:** pieces, grams, kilograms, milliliters, liters, teaspoons, tablespoons, cups. If you add the same item twice, the amounts are merged. Each item has −/+ steppers and a food emoji, and stat widgets summarize what you can cook.
+- **Three-step flow:** **Pantry → Recipes → Shopping list**, with a top navigation bar on desktop and a bottom tab bar on phones. Each step shows a live count. On wide screens the pantry has two columns: the list on the left, and on the right a "what you can cook now" card plus the other ways to add food. On phones it's one column, recipes become compact rows, and dialogs open as bottom sheets.
+- **One box to add groceries:** type them the way you'd say them, e.g. `6 eggs, 500 g flour, milk 2 l`. Amounts and units are read from the text (pounds and ounces become grams, "a dozen" becomes 12), and a preview shows what will be added before you press Add. Units: pieces, grams, kilograms, milliliters, liters, teaspoons, tablespoons, cups. If you add the same item twice, the amounts are merged. Each item has a food emoji and a − / + stepper.
 - **Smart matching:**
   - Units are converted, so 1 kg of rice covers a recipe that needs 250 g.
   - Simple plurals match their singular ("tomatoes" matches "tomato").
@@ -183,13 +182,12 @@ supabase/
 src/
 ├── App.tsx                 # App shell: navigation, recipe matching requests, dialogs, toasts
 ├── components/
-│   ├── Sidebar.tsx         # Sidebar nav + account card; TabBar for mobile
+│   ├── Nav.tsx             # Top bar (desktop nav + account slot) and bottom TabBar for phones
 │   ├── SignInDialog.tsx    # Magic-link sign-in
-│   ├── PantryView.tsx      # Pantry page: stats, quick add, list, onboarding
+│   ├── PantryView.tsx      # Pantry page: add box, ways to add, list, recipe suggestion, welcome
 │   ├── RecipesView.tsx     # Recipes page: search, tabs, diet chips, card grid
 │   ├── ShoppingView.tsx    # Shopping list page
-│   ├── StatTiles.tsx       # Count-up stat widgets
-│   ├── GroceryForm.tsx     # Quick-add bar: name / amount / unit
+│   ├── GroceryForm.tsx     # Quick-add box: "6 eggs, 500 g flour" with a live preview
 │   ├── GroceryList.tsx     # Editable grocery list with steppers
 │   ├── AddWithAIDialog.tsx # Photo (local detector) or pasted list (Claude) → review → add
 │   ├── LiveScan.tsx        # Full-screen camera: hold still to scan, tap boxes, tray → pantry
@@ -214,6 +212,7 @@ src/
 │   ├── scanFrame.ts        # Live scan logic: cover crop, hold-still detector, tray (unit-tested)
 │   ├── useShoppingList.ts  # Shopping list in localStorage
 │   ├── useToast.ts         # Single toast with auto-dismiss
+│   ├── quickAdd.ts         # Parse "6 eggs, 500 g flour, milk 2 l" into items (unit-tested)
 │   ├── foodEmoji.ts        # Grocery name → emoji
 │   └── format.ts           # Amount formatting
 ├── types.ts                # Shared domain types

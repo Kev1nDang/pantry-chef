@@ -6,7 +6,7 @@ import { PhotoViewer } from './components/PhotoViewer';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipesView, type Filter } from './components/RecipesView';
 import { ShoppingView } from './components/ShoppingView';
-import { Sidebar, TabBar, type View } from './components/Sidebar';
+import { Account, TabBar, TopBar, type View } from './components/Nav';
 import { SignInDialog } from './components/SignInDialog';
 import { ToastBar } from './components/ToastBar';
 import { matchRecipes, messageOf, type NewGrocery } from './lib/api';
@@ -165,14 +165,14 @@ export default function App() {
   const counts = { pantry: groceries.length, recipes: readyCount, shopping: toBuyCount };
 
   return (
-    <div className="shell">
-      <Sidebar
+    <div className="app">
+      <TopBar
         view={view}
         onNavigate={navigate}
         counts={counts}
-        session={session}
-        syncStatus={syncStatus}
-        onSignIn={() => setDialog({ kind: 'signin' })}
+        account={
+          <Account session={session} syncStatus={syncStatus} onSignIn={() => setDialog({ kind: 'signin' })} />
+        }
       />
 
       <main className="main" key={view}>
@@ -182,31 +182,9 @@ export default function App() {
             syncError={syncError}
             photos={photoStore.photos}
             photosError={photoStore.error}
-            recipeCounts={loading ? null : { total: matches.length, ready: readyCount }}
-            stats={[
-              { label: 'In your pantry', value: groceries.length, emoji: '🧺', tone: 'accent' },
-              {
-                label: 'Ready to cook',
-                value: loading && matches.length === 0 ? null : readyCount,
-                emoji: '✅',
-                tone: 'ready',
-                onClick: () => {
-                  setFilter('ready');
-                  navigate('recipes');
-                },
-              },
-              {
-                label: 'Almost there',
-                value: loading && matches.length === 0 ? null : closeCount,
-                emoji: '⏳',
-                tone: 'close',
-                onClick: () => {
-                  setFilter('close');
-                  navigate('recipes');
-                },
-              },
-              { label: 'To buy', value: toBuyCount, emoji: '🛒', onClick: () => navigate('shopping') },
-            ]}
+            recipeCounts={
+              loading && matches.length === 0 ? null : { total: matches.length, ready: readyCount, close: closeCount }
+            }
             onAdd={addGroceries}
             onRemove={(item) =>
               changePantry((prev) => prev.filter((g) => g.id !== item.id), `Removed ${item.name}`)
