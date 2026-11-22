@@ -69,6 +69,7 @@ flowchart LR
 - **Accounts and sync:** **Continue with Google** (or get an emailed magic link) and your pantry and shopping list are saved to your account. Sign in with the same Google account on any phone or computer and they're there. The first sign-in creates the account and brings along what you added while signed out. Signed out, both lists are stored in `localStorage`. Each browser also keeps a copy of your lists, so they show at once while a sleeping API wakes up, and changes made offline are sent later. The avatar menu shows who's signed in, how, and whether everything is saved. Signing out only signs out that device.
 - **Smart features (signed-in users):**
   - **Live scan:** open the camera and pan around your fridge. Hold the phone still on a shelf (or tap the shutter) and the view freezes while the detector reads it. Each food gets a **green box with its name on top**: tap one to check the name and count, then add it to a tray. Keep scanning shelf by shelf, then add the whole tray to your pantry in one go. The same shelf isn't scanned twice in a row, and boxes the detector isn't sure about are dashed amber. See [Live scan](#live-scan).
+  - **Live camera:** a camera with a detector that runs **on the phone itself**. Move it around the fridge and every grocery in view gets a green box with its name that follows the item as the camera moves. Tap a box to put that item in the tray (its box goes away), then add the tray to your pantry. Nothing is uploaded, so it works signed out and costs nothing to run. The first time it downloads about 65 MB of models, which the browser keeps. See [Live camera](#live-camera).
   - **Upload photo:** on a phone, the button offers to take a photo or pick one from your library. Photograph your fridge, a shelf or the shopping on your counter, and a local detector (no LLM, free to run) **counts the food it sees**: "6 eggs, 3 bananas, 2 milk". Every count is in pieces, and items the detector isn't sure about are marked **Not sure**. You review, edit or add items before saving; tapping a row highlights what was counted on the photo. Photos are shrunk in the browser first, so they upload quickly over mobile data. See [How photo detection works](#how-photo-detection-works).
   - **Saved photos:** each photo is kept in your account (a private Supabase Storage folder only you can read) and shown under **Your photos**, where you can read it again or delete it.
   - **Paste a list:** paste a typed grocery list and Claude turns it into items you review before adding.
@@ -114,7 +115,7 @@ An account is an email address. Signing in with Google using the same email as a
 | Script              | What it does                                                   |
 | ------------------- | -------------------------------------------------------------- |
 | `npm run dev`       | Start the dev server with hot reload                           |
-| `npm run dev:phone` | The same, over HTTPS on your network, to try Live scan on a phone |
+| `npm run dev:phone` | The same, over HTTPS on your network, to try Live scan or Live camera on a phone |
 | `npm run build`     | Type-check and build to `dist/`                                |
 | `npm run preview`   | Serve the production build locally                             |
 | `npm run lint`      | Lint with oxlint                                               |
@@ -201,6 +202,7 @@ src/
 │   ├── AddWithAIDialog.tsx # Photo (local detector) or pasted list (Claude) → review → add
 │   ├── LiveScan.tsx        # Full-screen camera: hold still to scan, tap boxes, tray → pantry
 │   ├── ScanBoxes.tsx       # Tappable green boxes and labels over a scanned shot
+│   ├── LiveCamera.tsx      # Full-screen camera with the on-device detector: tap boxes, tray → pantry
 │   ├── PhotoViewer.tsx     # A saved photo: read it again or delete it
 │   ├── CookDialog.tsx      # AI: generate a recipe from the pantry
 │   ├── RecipeCard.tsx      # Ranked result card with coverage meter
@@ -226,6 +228,15 @@ src/
 │   ├── quickAdd.ts         # Parse "6 eggs, 500 g flour, milk 2 l" into items (unit-tested)
 │   ├── foodEmoji.ts        # Grocery name → emoji
 │   └── format.ts           # Amount formatting
+├── live/                   # Live camera pipeline (on-device; see "Live camera" below)
+│   ├── detector.worker.ts  # Web Worker: ONNX Runtime Web models, per-frame detect → track → name
+│   ├── useLiveDetector.ts  # Feeds camera frames to the worker; moves boxes with the camera
+│   ├── tracker.ts          # Box tracking across frames, cleanup, when to show and name (unit-tested)
+│   ├── motion.ts           # Camera motion from tiny thumbnails (unit-tested)
+│   ├── labels.ts           # Decodes labels.json, names a crop (unit-tested)
+│   ├── frame.ts            # Fitting a frame into the detector's square input
+│   ├── protocol.ts         # Worker messages
+│   └── config.ts           # Model URLs, thresholds
 ├── types.ts                # Shared domain types
 └── index.css               # Styles and theme tokens
 ```
@@ -299,7 +310,28 @@ Live scan uses the same endpoint, one camera frame at a time. A scan takes sever
 3. **Boxes:** each detection becomes a button positioned in percent of the shot, with its label above. Tapping one opens a card with the name (editable, in case the detector got it wrong) and a count that starts at how many it found. **Add** puts it in the tray; tapping it again offers Undo.
 4. **Tray:** foods picked across shelves are summed by name. **Add N items** puts them in the pantry and saves the shots they came from under **Your photos**.
 
-The logic that doesn't need a camera (the crop, the hold-still detector and the tray) is in `src/lib/scanFrame.ts` with unit tests. The longer-term plan is a small detector running on the phone itself, so boxes can follow the camera live. It would reuse the same boxes, card and tray.
+The logic that doesn't need a camera (the crop, the hold-still detector and the tray) is in `src/lib/scanFrame.ts` with unit tests.
+
+### Live camera
+
+Live camera is a separate pipeline that runs entirely in the browser, so boxes can follow the camera as it moves. It doesn't call the API. Two models run with [ONNX Runtime Web](https://onnxruntime.ai/docs/tutorials/web/) in a Web Worker, on the GPU through WebGPU where the browser has it, otherwise on the CPU (WASM):
+
+| Step | Model | Size | Job |
+|------|-------|------|-----|
+| Boxes | [D-FINE-S](https://huggingface.co/onnx-community/dfine_s_obj365-ONNX), trained on Objects365 (Apache-2.0) | 42 MB | Boxes things on every frame; only its ~60 grocery and packaging classes (Apple, Bottle, Canned, …) are kept |
+| Names | [MobileCLIP-S0](https://huggingface.co/Xenova/mobileclip_s0) image encoder (fp16) | 23 MB | Names each new box once, by comparing the crop with text embeddings of the same 65-query vocabulary the server uses |
+
+They were chosen in a bake-off of in-browser models. On the 11-photo eval set this pair passes 14 of 24 checks against OWLv2's 15, with about a third of the wrong items, and it runs in a browser: about 0.2 s per frame for D-FINE plus 40 ms per new box on a laptop iGPU over WebGPU, versus 14 s for OWLv2. The text side is precomputed by [`backend/scripts/build_live_labels.py`](backend/scripts/build_live_labels.py) into `public/live-camera/labels.json`, so only the image encoder ships. Run it again after changing `VOCABULARY`. The model files load from Hugging Face, pinned to the tested revisions, and are kept in the browser's Cache Storage after the first download.
+
+Per frame:
+
+1. **Fit:** the on-screen part of the video goes to the worker as an `ImageBitmap`. A phone held upright shows a ~9:19 view, which is padded to 3:4 before it's stretched into the model's 640 × 640 square, so items aren't squashed beyond what the model was trained on.
+2. **Boxes:** detections scoring ≥ 0.2 are kept. Duplicates and group boxes (a bowl holding fruit, a whole egg carton) are dropped, as on the server.
+3. **Tracking:** each box is matched to the item it was on the frame before, so it keeps one identity: one name and one tap. Camera motion is measured between frames on 64-px grayscale thumbnails (a coarse-to-fine search that copes with repeating items like cans), which keeps the matches right during a quick pan. A box shows once its item has been seen on two frames (one on slow devices), and it's hidden when the item is lost.
+4. **Names:** new boxes are cropped with a small margin and named by MobileCLIP within a per-frame time budget. A crop closest to a "not food" phrase (shelf, plate, hand, …) gets no box. Where the classifier is unsure (below 0.5) the box is dashed amber, and it's named again when the item fills much more of the view.
+5. **Between frames:** a detector frame takes 0.2–1 s depending on the device, so the view measures the camera motion since that frame about 15 times a second and moves the boxes along. When the view moves too far to follow, the boxes are hidden until the next frame.
+
+A tapped box's item stays tracked (hidden) for a few seconds, so its box doesn't reappear. The tray works like Live scan's: tap a chip to fix a name or count. The tracking, motion and naming logic is in `src/live/` with unit tests. Live scan and Upload photo are unchanged; if the on-device detector can't start, Live camera offers Live scan instead.
 
 ## How matching works
 

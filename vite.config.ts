@@ -22,5 +22,10 @@ export default defineConfig(({ mode }) => {
       proxy: { '/api': { target: env.API_PROXY_TARGET || 'http://localhost:8290', changeOrigin: true } },
     },
     preview: { port: 5290, strictPort: true },
+    // The Live camera's detector worker imports onnxruntime-web, which needs an ES module worker.
+    // Pre-bundling it up front saves the dev server a full page reload the first time the
+    // worker is opened (only the worker imports it, so Vite would discover it late).
+    worker: { format: 'es' },
+    optimizeDeps: { include: ['onnxruntime-web/webgpu'] },
   }
 })

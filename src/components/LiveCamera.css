@@ -1,0 +1,129 @@
+/* ───────── Live camera (full-screen camera, on-device detector) ───────── */
+/* Self-contained: always dark over the camera whatever the theme; the cards use the theme's surface. */
+.lc {
+  --lc-box: #2fd07a; --lc-box-ink: #05230f; --lc-unsure: #f5b83d; --lc-unsure-ink: #2a1a00;
+  position: fixed; inset: 0; z-index: 45; /* like Live scan: above the app bars (30) and dialogs (40) */ height: 100dvh; overflow: hidden; background: #000; color: #fff;
+  animation: lc-fade 0.2s ease-out;
+}
+.lc-stage { position: absolute; inset: 0; }
+.lc-video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lc-boxes { position: absolute; inset: 0; }
+
+/* Boxes glide between updates (they move with the camera ~15 times a second) instead of jumping. */
+.lc-box {
+  position: absolute; padding: 0; border: 2px solid var(--lc-box); border-radius: 6px; background: transparent; cursor: pointer;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+  transition: left 0.1s linear, top 0.1s linear, width 0.2s linear, height 0.2s linear, background 0.15s;
+  animation: lc-fade 0.2s ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.lc-box:hover, .lc-box:active { background: color-mix(in srgb, var(--lc-box) 18%, transparent); }
+.lc-box:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.lc-box.unsure { border-style: dashed; border-color: var(--lc-unsure); }
+.lc-label {
+  position: absolute; z-index: 1; left: -2px; bottom: calc(100% + 3px); max-width: 60vw; padding: 3px 9px; border-radius: 6px;
+  background: var(--lc-box); color: var(--lc-box-ink); font-size: 0.82rem; font-weight: 700; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+.lc-box.unsure .lc-label { background: var(--lc-unsure); color: var(--lc-unsure-ink); }
+.lc-box.label-inside .lc-label { bottom: auto; top: 2px; left: 2px; }
+.lc-box.label-right .lc-label { left: auto; right: -2px; }
+.lc-box.label-inside.label-right .lc-label { left: auto; right: 2px; }
+@media (prefers-reduced-motion: reduce) { .lc-box { transition: none; } }
+
+.lc-pop {
+  position: absolute; z-index: 2; translate: -50% 0; padding: 4px 10px; border-radius: 99px; pointer-events: none;
+  background: var(--lc-box); color: var(--lc-box-ink); font-weight: 800; font-size: 0.9rem; white-space: nowrap;
+  animation: lc-pop 0.9s ease-out forwards;
+}
+@keyframes lc-pop { 0% { opacity: 0; transform: translateY(0) scale(0.8); } 20% { opacity: 1; transform: translateY(-8px) scale(1.05); } 100% { opacity: 0; transform: translateY(-48px) scale(1); } }
+@keyframes lc-fade { from { opacity: 0; } }
+@keyframes lc-rise { from { opacity: 0; transform: translateY(12px); } }
+@keyframes lc-spin { to { transform: rotate(360deg); } }
+
+/* Bars over the stage: they let taps through to the boxes except on their own controls. */
+.lc-top, .lc-bottom { position: absolute; z-index: 3; left: 0; right: 0; pointer-events: none; }
+.lc-top > *, .lc-bottom > * { pointer-events: auto; }
+.lc-top {
+  top: 0; display: flex; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 28px; background: linear-gradient(rgb(0 0 0 / 0.55), transparent);
+}
+.lc-title { flex: 1; margin: 0; font-size: 1rem; font-weight: 700; text-shadow: 0 1px 3px rgb(0 0 0 / 0.5); }
+.lc-icon-btn {
+  display: grid; place-items: center; width: 42px; height: 42px; border: 0; border-radius: 50%;
+  background: rgb(0 0 0 / 0.45); color: #fff; cursor: pointer; backdrop-filter: blur(6px);
+}
+.lc-status {
+  padding: 6px 12px; border-radius: 99px; background: rgb(0 0 0 / 0.45); font-size: 0.78rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; backdrop-filter: blur(6px);
+}
+
+.lc-bottom {
+  bottom: 0; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 36px 16px calc(env(safe-area-inset-bottom) + 16px); background: linear-gradient(transparent, rgb(0 0 0 / 0.7) 36px);
+}
+.lc-bottom > * { width: 100%; max-width: 560px; }
+.lc-hint { margin: 0; text-align: center; font-weight: 600; text-shadow: 0 1px 3px rgb(0 0 0 / 0.6); }
+.lc-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px;
+  border: 1px solid rgb(255 255 255 / 0.4); border-radius: 99px; background: rgb(0 0 0 / 0.45); color: #fff;
+  font: inherit; font-weight: 600; cursor: pointer; backdrop-filter: blur(6px);
+}
+
+.lc-loading { display: grid; gap: 8px; justify-items: center; text-align: center; font-weight: 600; }
+.lc-loading small { color: rgb(255 255 255 / 0.75); font-weight: 500; }
+.lc-progress { width: min(320px, 100%); height: 6px; border-radius: 99px; background: rgb(255 255 255 / 0.25); overflow: hidden; }
+.lc-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--lc-box); transition: width 0.2s; }
+
+.lc-error { display: grid; gap: 10px; padding: 12px 14px; border-radius: 12px; background: rgb(194 72 59 / 0.92); text-align: center; }
+.lc-error p { margin: 0; font-size: 0.9rem; line-height: 1.45; }
+.lc-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+
+.lc-spinner {
+  display: inline-block; width: 18px; height: 18px; border: 2.5px solid rgb(255 255 255 / 0.3); border-top-color: var(--lc-box);
+  border-radius: 50%; animation: lc-spin 0.8s linear infinite;
+}
+.lc-starting { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0; }
+.lc-problem { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center; }
+.lc-problem p { max-width: 34ch; margin: 0; line-height: 1.5; }
+
+.lc-tray {
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 10px; border-radius: 16px;
+  background: rgb(255 255 255 / 0.14); backdrop-filter: blur(12px); animation: lc-rise 0.25s ease-out;
+}
+.lc-tray ul { flex: 1; min-width: 0; display: flex; gap: 6px; margin: 0; padding: 2px; list-style: none; overflow-x: auto; scrollbar-width: none; }
+.lc-tray li { flex: none; }
+.lc-chip {
+  height: 34px; padding: 0 12px; border: 0; border-radius: 99px; background: rgb(255 255 255 / 0.18); color: #fff;
+  font: inherit; font-size: 0.86rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.lc-chip[aria-pressed='true'] { background: var(--lc-box); color: var(--lc-box-ink); }
+.lc-tray > .btn { flex: none; }
+
+.lc-card {
+  display: grid; gap: 10px; margin: 0; padding: 14px; border-radius: 16px; background: var(--surface, #fff); color: var(--text, #111);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.35); animation: lc-rise 0.2s ease-out;
+}
+.lc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted, #666); font-size: 0.85rem; }
+.lc-card-name {
+  width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--border, #ddd); border-radius: 10px;
+  background: var(--surface-2, #f4f4f4); color: inherit; font: inherit; font-size: 1.05rem; font-weight: 700;
+}
+.lc-card-name:focus { outline: 2px solid var(--accent, #1f8a4c); outline-offset: 1px; }
+.lc-card-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lc-card-row > .btn-primary { flex: 1; }
+.lc-stepper { display: flex; align-items: center; gap: 4px; padding: 2px; border-radius: 99px; background: var(--surface-2, #f4f4f4); font-weight: 700; }
+.lc-stepper output { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
+.lc-step-btn {
+  display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: none; color: inherit; cursor: pointer;
+}
+.lc-step-btn:hover:not(:disabled) { background: var(--surface-3, #e8e8e8); }
+.lc-step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.lc-confirm {
+  position: absolute; z-index: 4; top: calc(env(safe-area-inset-top) + 66px); left: 16px; right: 16px; max-width: 420px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 12px 14px;
+  border-radius: 16px; background: var(--surface, #fff); color: var(--text, #111); box-shadow: 0 24px 64px rgb(0 0 0 / 0.35);
+  animation: lc-rise 0.2s ease-out;
+}
+.lc-confirm-actions { display: flex; gap: 8px; }

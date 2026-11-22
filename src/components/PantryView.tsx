@@ -30,6 +30,8 @@ interface Props {
   onAddWithAI: () => void;
   /** open the camera to scan shelf by shelf */
   onLiveScan: () => void;
+  /** open the camera with the on-device detector: boxes follow the groceries as it moves */
+  onLiveCamera: () => void;
   /** a photo taken or picked with the Upload photo button, to read */
   onPhoto: (file: File) => void;
   onOpenPhoto: (photo: SavedPhoto) => void;
@@ -39,7 +41,7 @@ interface Props {
 
 /** A way to add groceries besides typing them. */
 interface Way {
-  key: 'scan' | 'photo' | 'paste';
+  key: 'scan' | 'livecam' | 'photo' | 'paste';
   icon: IconName;
   label: string;
   hint: string;
@@ -66,12 +68,16 @@ export function PantryView(props: Props) {
   // The camera needs HTTPS and a browser that offers it; without one, "Upload photo" does the job.
   const ways: Way[] = [
     ...(cameraSupported() ? [{ key: 'scan', icon: 'camera', label: 'Live scan', hint: 'Point your camera at a shelf' } as const] : []),
+    ...(cameraSupported()
+      ? [{ key: 'livecam', icon: 'camera', label: 'Live camera', hint: 'Tap groceries as you pan around' } as const]
+      : []),
     { key: 'photo', icon: 'image', label: 'Upload photo', hint: 'Fridge, shelf or shopping bag' },
     { key: 'paste', icon: 'paste', label: 'Paste a list', hint: 'From your notes or a message' },
   ];
 
   function choose(way: Way['key']) {
     if (way === 'scan') props.onLiveScan();
+    else if (way === 'livecam') props.onLiveCamera();
     else if (way === 'photo') photoInput.current?.click();
     else props.onAddWithAI();
   }

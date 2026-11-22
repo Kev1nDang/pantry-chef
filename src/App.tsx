@@ -21,6 +21,8 @@ import type { GroceryItem, RecipeIngredient, RecipeMatch } from './types';
 
 // The camera view loads on first use, so the app itself stays small.
 const LiveScan = lazy(() => import('./components/LiveScan').then((m) => ({ default: m.LiveScan })));
+// The on-device Live camera, with its detector worker; its models download on first open.
+const LiveCamera = lazy(() => import('./components/LiveCamera').then((m) => ({ default: m.LiveCamera })));
 
 const SAMPLE: NewGrocery[] = [
   { name: 'eggs', amount: 6, unit: 'pcs' },
@@ -34,6 +36,7 @@ const SAMPLE: NewGrocery[] = [
 type Dialog =
   | { kind: 'add'; initial?: InitialUpload }
   | { kind: 'scan' }
+  | { kind: 'camera' }
   | { kind: 'photo'; photo: SavedPhoto }
   | { kind: 'cook' }
   | { kind: 'signin' }
@@ -201,6 +204,7 @@ export default function App() {
             onClear={() => changePantry(() => [], 'Pantry cleared')}
             onAddWithAI={() => setDialog({ kind: 'add' })}
             onLiveScan={() => setDialog({ kind: 'scan' })}
+            onLiveCamera={() => setDialog({ kind: 'camera' })}
             onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
             onOpenPhoto={(photo) => setDialog({ kind: 'photo', photo })}
             onSample={() => addGroceries(SAMPLE)}
@@ -291,6 +295,15 @@ export default function App() {
                 : undefined
             }
             onPhoto={(file) => setDialog({ kind: 'add', initial: { file, name: file.name } })}
+            onClose={() => setDialog(null)}
+          />
+        </Suspense>
+      )}
+      {dialog?.kind === 'camera' && (
+        <Suspense fallback={null}>
+          <LiveCamera
+            onAdd={addGroceries}
+            onFallback={() => setDialog({ kind: 'scan' })}
             onClose={() => setDialog(null)}
           />
         </Suspense>
