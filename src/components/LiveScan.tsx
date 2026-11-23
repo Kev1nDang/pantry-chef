@@ -6,6 +6,8 @@ import {
   coverCrop,
   frameDiff,
   meanLuma,
+  moveOnStart,
+  moveOnStep,
   SAMPLE_MS,
   steadyStep,
   THUMB_H,
@@ -14,6 +16,7 @@ import {
   trayAdd,
   trayRemove,
   trayToGroceries,
+  type MoveOnState,
   type SteadyHint,
   type SteadyState,
   type TrayItem,
@@ -60,24 +63,6 @@ const HINTS: Record<SteadyHint, string> = {
   same: 'Move to the next shelf to scan it',
 };
 
-const AUTO_KEY = 'pantry-chef:auto-scan';
-
-function readAuto() {
-  try {
-    return localStorage.getItem(AUTO_KEY) !== 'off';
-  } catch {
-    return true;
-  }
-}
-
-function writeAuto(on: boolean) {
-  try {
-    localStorage.setItem(AUTO_KEY, on ? 'on' : 'off');
-  } catch {
-    // private mode or blocked storage: the toggle just isn't remembered
-  }
-}
-
 const hasAdded = (shot: Shot | null): shot is Shot => !!shot && Object.keys(shot.added).length > 0;
 
 const keepAdded = (added: Record<string, Added>, keep: (key: string, a: Added) => boolean) =>
@@ -85,9 +70,10 @@ const keepAdded = (added: Record<string, Added>, keep: (key: string, a: Added) =
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * Point the camera at the fridge: when the phone is held still on a new shelf (or the shutter is
- * tapped) the view freezes, the server's detector boxes the food in it, and tapping a box adds that
- * food to a tray. Keep scanning shelf by shelf, then add the whole tray to the pantry.
+ * Point the camera at the fridge and tap Start: whenever the phone is held still on a new shelf the
+ * view freezes, the server's detector boxes the food in it, and tapping a box adds that food to a
+ * tray. Pointing the phone at the next shelf goes back to the live view and scans that one, shelf
+ * after shelf, until Stop is tapped. Then add the whole tray to the pantry.
  */
 export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props) {
   const { videoRef, status, retry } = useCamera();
@@ -97,7 +83,8 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
   const [shot, setShot] = useState<Shot | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tray, setTray] = useState<TrayItem[]>([]);
-  const [auto, setAuto] = useState(readAuto);
+  /** scanning shelf after shelf, until the user taps Stop */
+  const [running, setRunning] = useState(false);
   const [steady, setSteady] = useState<{ progress: number; hint: SteadyHint }>({ progress: 0, hint: 'move' });
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +163,9 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
         found: null,
         added: {},
       });
+      // The shot now covers the video; let the stream run underneath while scanning is on, so
+      // pointing the phone at the next shelf can be noticed while the results are up.
+      if (running) void video.play().catch(() => {});
       const found = await detectGroceries(token, photo, 'live-scan.jpg', ctrl.signal);
       if (ctrl.signal.aborted) return;
       setShot((s) => (s?.id === id ? { ...s, found } : s));
@@ -190,6 +180,7 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
       request.current = null;
       setShot(null);
       setPhase('live');
+      setRunning(false); // don't retry on every shelf; the user can start again
       setError(
         err instanceof ApiError && err.status === 503
           ? 'Spotting groceries isn’t set up on this server yet. You can upload a photo or paste a list instead.'
@@ -200,13 +191,13 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
   }
 
   const onSteady = useEffectEvent((fire: boolean) => {
-    if (fire && auto) void capture();
+    if (fire && running) void capture();
   });
 
-  // Watch the live view for the phone being held still on a new shelf.
+  // While scanning is on, watch the live view for the phone being held still on a new shelf.
   useEffect(() => {
     const video = videoRef.current;
-    if (phase !== 'live' || status !== 'live' || !video) return;
+    if (!running || phase !== 'live' || status !== 'live' || !video) return;
     const canvas = document.createElement('canvas');
     canvas.width = THUMB_W;
     canvas.height = THUMB_H;
@@ -234,8 +225,43 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
       onSteady(out.fire);
     };
     frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      setSteady({ progress: 0, hint: 'move' });
+    };
+  }, [running, phase, status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** a card is open: hold off moving on to the next shelf */
+  const cardOpen = useEffectEvent(() => selected !== null);
+  const onMovedOn = useEffectEvent(() => {
+    if (!selected) backToLive();
+  });
+
+  // While scanning is on and a shot's results are up, go back to the live view for the next shelf
+  // once the phone is pointed somewhere else (not while a card is open).
+  const resultsAt = phase === 'results' ? shot?.id : undefined;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!running || resultsAt === undefined || status !== 'live' || !video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = THUMB_W;
+    canvas.height = THUMB_H;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    let frame = 0;
+    let last = 0;
+    let state: MoveOnState = moveOnStart(performance.now());
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      if (now - last < SAMPLE_MS || video.paused || video.readyState < 2 || !video.videoWidth) return;
+      last = now;
+      const out = moveOnStep(state, { thumb: sampleThumb(video, liveCrop(video), ctx), now, busy: cardOpen() });
+      state = out.state;
+      if (out.fire) onMovedOn();
+    };
+    frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [phase, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [running, resultsAt, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Count the seconds while the server reads a shot (scans take 10–20 s on the hosted API).
   const startedAt = phase === 'scanning' ? shot?.startedAt : undefined;
@@ -286,11 +312,17 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
     else onClose();
   }
 
-  function toggleAuto() {
-    setAuto((on) => {
-      writeAuto(!on);
-      return !on;
-    });
+  function toggleRunning() {
+    if (running) {
+      setRunning(false);
+      if (phase === 'scanning') backToLive(); // abandon the shot being read
+      setAnnounce('Scanning stopped');
+    } else {
+      setRunning(true);
+      setError(null);
+      if (phase !== 'live') backToLive();
+      setAnnounce('Scanning. Hold steady on a shelf.');
+    }
   }
 
   function picked(e: ChangeEvent<HTMLInputElement>) {
@@ -316,7 +348,18 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
   const found = shot?.found ?? null;
   const trayCount = tray.length;
   const cameraProblem = status === 'denied' || status === 'unavailable' || status === 'error';
-  const hint = steady.hint === 'dark' || auto ? HINTS[steady.hint] : 'Tap the button to scan';
+  const hint = running ? HINTS[steady.hint] : 'Tap Start to scan shelf after shelf';
+  const toggle = (
+    <button
+      className="scan-toggle"
+      style={{ '--p': running && phase === 'live' ? steady.progress : 0 } as CSSProperties}
+      aria-pressed={running}
+      aria-label={running ? 'Stop scanning' : 'Start scanning'}
+      onClick={toggleRunning}
+    >
+      <span>{running ? <i aria-hidden /> : 'Start'}</span>
+    </button>
+  );
 
   return (
     <div className="live-scan" role="dialog" aria-modal="true" aria-labelledby="live-scan-title">
@@ -341,9 +384,13 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
         <h2 id="live-scan-title" className="scan-title">
           Live scan
         </h2>
-        <button className="scan-pill" aria-pressed={auto} onClick={toggleAuto} title="Scan when the phone is held still">
-          Auto
-        </button>
+        {running && (
+          // Always on screen while scanning (unlike the round button, which a card covers), so it can be stopped any time.
+          <button className="scan-pill scan-running" onClick={toggleRunning} aria-label="Stop scanning" title="Stop scanning">
+            Scanning
+            <Icon name="x" size={14} />
+          </button>
+        )}
         <button
           className="scan-icon-btn"
           aria-label="Upload a photo instead"
@@ -408,16 +455,7 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
         {phase === 'live' && status === 'live' && (
           <>
             <p className="scan-hint">{hint}</p>
-            <div className="scan-controls">
-              <button
-                className="shutter"
-                style={{ '--p': auto ? steady.progress : 0 } as CSSProperties}
-                aria-label="Scan now"
-                onClick={() => void capture()}
-              >
-                <span />
-              </button>
-            </div>
+            <div className="scan-controls">{toggle}</div>
           </>
         )}
 
@@ -428,10 +466,11 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
               Spotting groceries…{elapsed > 0 && ` ${elapsed} s`}
             </span>
             <button className="scan-btn" onClick={backToLive}>
-              Cancel
+              {running ? 'Skip' : 'Cancel'}
             </button>
           </div>
         )}
+        {phase === 'scanning' && running && <div className="scan-controls">{toggle}</div>}
 
         {phase === 'results' && found && shot && (
           <>
@@ -451,6 +490,7 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
                   {found.items.length > 0
                     ? `Found ${plural(found.items.length, 'food')}. Tap a box to add it.`
                     : 'No groceries spotted. Try closer or in brighter light.'}
+                  {running && <span className="scan-sub">Point at the next shelf to keep scanning.</span>}
                 </p>
                 {found.items.length > 0 && (
                   <ul className="scan-found" aria-label="Foods in this shot">
@@ -474,9 +514,12 @@ export function LiveScan({ token, onAdd, onSavePhoto, onPhoto, onClose }: Props)
                   </ul>
                 )}
                 <div className="scan-controls">
-                  <button className="scan-btn scan-btn-lg" onClick={backToLive}>
-                    <Icon name="camera" size={18} /> Keep scanning
-                  </button>
+                  {!running && (
+                    <button className="scan-btn scan-btn-lg" onClick={backToLive}>
+                      <Icon name="camera" size={18} /> Back to camera
+                    </button>
+                  )}
+                  {toggle}
                 </div>
               </>
             )}

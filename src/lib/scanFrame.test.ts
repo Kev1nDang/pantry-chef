@@ -6,6 +6,10 @@ import {
   DARK_LUMA,
   frameDiff,
   meanLuma,
+  MIN_RESULTS_MS,
+  MOVE_ON_MS,
+  moveOnStart,
+  moveOnStep,
   NEW_VIEW_DIFF,
   STEADY_DIFF,
   STEADY_MS,
@@ -116,6 +120,44 @@ describe('steadyStep', () => {
   it("doesn't fire in the dark", () => {
     const outs = run([0, STEADY_MS, STEADY_MS * 2].map((now) => ({ ...still, luma: DARK_LUMA - 1, now })));
     expect(outs.every((o) => o.hint === 'dark' && !o.fire)).toBe(true);
+  });
+});
+
+describe('moveOnStep', () => {
+  const view = (v: number) => new Uint8Array(64 * 48).fill(v);
+  const shelf = view(100);
+  const nextShelf = view(100 + NEW_VIEW_DIFF + 10);
+
+  /** Samples 150 ms apart from `t0`; returns whether any fired. */
+  function run(state: ReturnType<typeof moveOnStart>, thumbs: Uint8Array[], t0: number, busy = false) {
+    let fired = false;
+    thumbs.forEach((thumb, i) => {
+      const out = moveOnStep(state, { thumb, now: t0 + i * 150, busy });
+      state = out.state;
+      fired ||= out.fire;
+    });
+    return { state, fired };
+  }
+
+  it('keeps the results up while the phone stays on the shelf', () => {
+    expect(run(moveOnStart(0), Array(20).fill(shelf), 0).fired).toBe(false);
+  });
+
+  it('moves on once the phone points elsewhere for a moment', () => {
+    const start = run(moveOnStart(0), [shelf], MIN_RESULTS_MS).state;
+    const steps = Math.ceil(MOVE_ON_MS / 150) + 1;
+    expect(run(start, Array(steps).fill(nextShelf), MIN_RESULTS_MS + 150).fired).toBe(true);
+    expect(run(start, [nextShelf], MIN_RESULTS_MS + 150).fired).toBe(false); // a single wobble
+  });
+
+  it('shows the results for a minimum time even if the phone keeps moving', () => {
+    const start = run(moveOnStart(0), [shelf], 0).state;
+    expect(run(start, Array(4).fill(nextShelf), 150).fired).toBe(false); // up to 750 ms
+  });
+
+  it('waits while a card is open', () => {
+    const start = run(moveOnStart(0), [shelf], MIN_RESULTS_MS).state;
+    expect(run(start, Array(10).fill(nextShelf), MIN_RESULTS_MS + 150, true).fired).toBe(false);
   });
 });
 

@@ -96,6 +96,43 @@ export function steadyStep(state: SteadyState, s: SteadySample): SteadyResult {
   return { state: { since }, progress, fire: progress >= 1, hint: 'hold' };
 }
 
+// ───────── Moving on ─────────
+// While scanning is on, a shot's results stay up while the phone points at that shelf (so its
+// boxes can be tapped) and give way to the live view once the phone is pointed somewhere else.
+
+/** Mean luma difference from the view when the results came up, above which the phone has moved on. */
+export const MOVE_ON_DIFF = NEW_VIEW_DIFF;
+/** ...and it has to stay that different this long (a wobble while tapping doesn't count). */
+export const MOVE_ON_MS = 300;
+/** Results stay up at least this long, so they can be read even if the phone keeps moving. */
+export const MIN_RESULTS_MS = 1500;
+
+export interface MoveOnState {
+  /** the view when the results came up (the first sample after) */
+  ref: Uint8Array | null;
+  /** since when the view has differed from it, or null */
+  since: number | null;
+  /** when the results came up */
+  shownAt: number;
+}
+
+export const moveOnStart = (now: number): MoveOnState => ({ ref: null, since: null, shownAt: now });
+
+/**
+ * Advance the moving-on detector by one live-view sample. `busy` holds it back (a card is open);
+ * `fire` means go back to the live view for the next shelf.
+ */
+export function moveOnStep(
+  state: MoveOnState,
+  s: { thumb: Uint8Array; now: number; busy: boolean },
+): { state: MoveOnState; fire: boolean } {
+  if (!state.ref) return { state: { ...state, ref: s.thumb }, fire: false };
+  if (s.busy || !(frameDiff(state.ref, s.thumb) > MOVE_ON_DIFF)) return { state: { ...state, since: null }, fire: false };
+  const since = state.since ?? s.now;
+  const fire = s.now - since >= MOVE_ON_MS && s.now - state.shownAt >= MIN_RESULTS_MS;
+  return { state: { ...state, since }, fire };
+}
+
 // ───────── The tray: foods picked so far in this scanning session ─────────
 
 export interface TrayItem {
